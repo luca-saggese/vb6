@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "last_updated": "2026-10-05T00:23:24Z",
+  "last_updated": "2026-10-12T00:23:49Z",
   "snapshots": [
     {
       "timestamp": "2026-09-13T19:22:06Z",
@@ -1157,6 +1157,40 @@
           "percent": 77.81
         }
       }
+    },
+    {
+      "timestamp": "2026-10-12T00:23:49Z",
+      "commit_sha": "34759b7280b4f7b28f54a9f9c518a05099e25995",
+      "commit_message": "Update coverage data",
+      "coverage": {
+        "line_coverage": 76.84,
+        "function_coverage": 66.24,
+        "region_coverage": 77.81
+      },
+      "tests": {
+        "total": 6144,
+        "lib_tests": 180,
+        "doc_tests": 123,
+        "integration_tests": 5841,
+        "fuzz_targets": 0
+      },
+      "details": {
+        "lines": {
+          "covered": 14858,
+          "total": 19336,
+          "percent": 76.84
+        },
+        "functions": {
+          "covered": 973,
+          "total": 1469,
+          "percent": 66.24
+        },
+        "regions": {
+          "covered": 24132,
+          "total": 31014,
+          "percent": 77.81
+        }
+      }
     }
   ],
   "coverage_summary": {
@@ -1166,7 +1200,7 @@
       "change_percent": 0.0,
       "best": 76.84,
       "worst": 76.76,
-      "average": 76.77
+      "average": 76.78
     },
     "function_coverage": {
       "latest": 66.24,
