@@ -11,6 +11,7 @@ members = [
     "projects/vb6compile",
     "projects/vb6codegen",
     "projects/vb6libraries",
+    "projects/vb6pcode",
     "projects/vb6format",
     "projects/vb6grammarfuzz",
     "projects/vb6harness",
