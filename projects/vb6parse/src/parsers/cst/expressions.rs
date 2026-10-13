@@ -1024,7 +1024,7 @@ impl Parser<'_> {
             Some(Token::TrueKeyword | Token::FalseKeyword) => {
                 self.parse_boolean_literal();
             }
-            Some(Token::NullKeyword | Token::EmptyKeyword) => {
+            Some(Token::NothingKeyword | Token::NullKeyword | Token::EmptyKeyword) => {
                 self.parse_special_literal();
             }
             Some(Token::DateTimeLiteral) => {

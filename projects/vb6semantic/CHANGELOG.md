@@ -29,6 +29,10 @@
   and `Variant`-to-typed assignments are rejected. Unknown types, array
   assignments, and call/member expressions remain explicitly unsupported.
 - Preserve distinct HIR types for `Nothing`, `Null`, and `Empty`.
+- Lower MX `??` to a lazy HIR node. Infer the fallback type for `Nothing`,
+  preserve `Null` and `Empty` as distinct result types, retain dynamic `Variant`
+  results, and select a widening-compatible object type or `Variant` fallback.
+  The HIR node is not yet connected to an HIR executor.
 
 ### Validation
 
@@ -36,3 +40,8 @@
 `cargo test --offline -p vb6semantic --test mx_s01_return` passed (4 tests);
 `cargo test --offline -p vb6semantic --test mx_s03_short_circuit` passed (3 tests);
 `cargo test --offline -p vb6semantic` passed (unit, integration, and doc tests).
+`cargo test --offline -p vb6semantic --test mx_s10_coalesce` passed (3 tests);
+the full semantic suite passed again with coalescing coverage. Parser expression
+tests passed (41 tests), and `cargo test --offline -p vb6interpret` passed.
+`cargo clippy --offline --lib -p vb6semantic --no-deps` completed successfully;
+it reports 21 existing lint warnings in the semantic crate.

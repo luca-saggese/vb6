@@ -181,6 +181,13 @@ pub enum ExpressionKind {
         /// Lazily evaluated right operand.
         right: Box<Expression>,
     },
+    /// MX `??`; only a `Nothing` left operand evaluates the right side.
+    Coalesce {
+        /// Left operand.
+        left: Box<Expression>,
+        /// Lazily evaluated fallback.
+        right: Box<Expression>,
+    },
     /// Invocation.
     Call {
         /// Invoked procedure or expression.
@@ -1122,12 +1129,55 @@ fn lower_expression(
                 })
                 .map(|child| child.text().to_string())
                 .unwrap_or_default();
+            let is_coalesce = operator == "??";
             let is_short_circuit =
                 matches!(operator.to_ascii_lowercase().as_str(), "andalso" | "orelse");
-            let result = if is_short_circuit {
+            let (kind, result) = if is_coalesce {
+                let left_type =
+                    left.info
+                        .ty
+                        .clone()
+                        .ok_or_else(|| SemanticError::UnsupportedFeature {
+                            feature: "MX S10 ??".to_string(),
+                            reason: "left operand has no statically known type".to_string(),
+                            location: left.info.location.clone(),
+                        })?;
+                let right_type =
+                    right
+                        .info
+                        .ty
+                        .clone()
+                        .ok_or_else(|| SemanticError::UnsupportedFeature {
+                            feature: "MX S10 ??".to_string(),
+                            reason: "fallback has no statically known type".to_string(),
+                            location: right.info.location.clone(),
+                        })?;
+                let (result, convert_left, convert_right) =
+                    coalesce_result_type(&left_type, &right_type, &left.info.location)?;
+                if convert_left && left_type != result {
+                    left = implicit_conversion(left, result.clone());
+                }
+                if convert_right && right_type != result {
+                    right = implicit_conversion(right, result.clone());
+                }
+                (
+                    ExpressionKind::Coalesce {
+                        left: Box::new(left),
+                        right: Box::new(right),
+                    },
+                    result,
+                )
+            } else if is_short_circuit {
                 left = coerce_short_circuit_operand(left)?;
                 right = coerce_short_circuit_operand(right)?;
-                TypeInfo::boolean()
+                (
+                    ExpressionKind::ShortCircuit {
+                        operator: Operator::Source(operator),
+                        left: Box::new(left),
+                        right: Box::new(right),
+                    },
+                    TypeInfo::boolean(),
+                )
             } else {
                 let result = match (&left.info.ty, &right.info.ty) {
                     (Some(l), Some(r)) => crate::TypeChecker::new().check_operation(
@@ -1157,20 +1207,14 @@ fn lower_expression(
                         right = implicit_conversion(right, target);
                     }
                 }
-                result
-            };
-            let kind = if is_short_circuit {
-                ExpressionKind::ShortCircuit {
-                    operator: Operator::Source(operator),
-                    left: Box::new(left),
-                    right: Box::new(right),
-                }
-            } else {
-                ExpressionKind::Binary {
-                    operator: Operator::Source(operator),
-                    left: Box::new(left),
-                    right: Box::new(right),
-                }
+                (
+                    ExpressionKind::Binary {
+                        operator: Operator::Source(operator),
+                        left: Box::new(left),
+                        right: Box::new(right),
+                    },
+                    result,
+                )
             };
             (kind, Some(result))
         }
@@ -1331,6 +1375,39 @@ fn is_expression_kind(kind: SyntaxKind) -> bool {
             | SyntaxKind::StringLiteralExpression
             | SyntaxKind::BooleanLiteralExpression
     )
+}
+
+fn coalesce_result_type(
+    left: &TypeInfo,
+    right: &TypeInfo,
+    location: &SourceLocation,
+) -> Result<(TypeInfo, bool, bool), SemanticError> {
+    use vb6core::types::VBType;
+
+    match left.kind {
+        VBType::Unknown => Err(SemanticError::UnsupportedFeature {
+            feature: "MX S10 ??".to_string(),
+            reason: "left operand type is unknown".to_string(),
+            location: location.clone(),
+        }),
+        VBType::Nothing => Ok((right.clone(), false, false)),
+        VBType::Null | VBType::Empty => Ok((left.clone(), false, false)),
+        VBType::Variant => Ok((TypeInfo::variant(), false, false)),
+        VBType::Object | VBType::Class(_) if right.kind == VBType::Nothing => {
+            Ok((left.clone(), false, false))
+        }
+        VBType::Object | VBType::Class(_) => {
+            if left.can_assign_to(right) {
+                Ok((right.clone(), true, false))
+            } else if right.can_assign_to(left) {
+                Ok((left.clone(), false, true))
+            } else {
+                let variant = TypeInfo::variant();
+                Ok((variant, true, true))
+            }
+        }
+        _ => Ok((left.clone(), false, false)),
+    }
 }
 
 fn coerce_short_circuit_operand(expression: Expression) -> Result<Expression, SemanticError> {

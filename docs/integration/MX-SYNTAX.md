@@ -164,9 +164,17 @@ citta = cliente?.Indirizzo?.Citta
 citta = cliente?.Indirizzo?.Citta ?? "Non disponibile"
 ```
 
-- Il secondo operando è valutato solo quando il primo è "assente" secondo una regola esplicita.
-- Deve essere coerente con `?.`, ma non confondere automaticamente `Nothing`, `Null`, `Empty`, `0` e `""`.
-- Definire precedenze, associatività e unificazione del tipo dei due operandi.
+- Il secondo operando è valutato solo quando il primo è `Nothing`.
+- `Null`, `Empty`, `0` e `""` non attivano il fallback e non sono sinonimi di `Nothing`.
+- Precedenza e associatività sono definite dal parser; il tipo statico segue la
+  regola sotto riportata.
+- Implementazione corrente: la semantica definisce assenza come `Nothing` soltanto.
+  HIR valuta staticamente entrambi gli operandi ma conserva un nodo lazy distinto.
+  Il tipo risultante è il fallback per `Nothing`, rimane `Null`/`Empty` per quei
+  sentinels, resta `Variant` per un operando sinistro `Variant`, e per oggetti
+  sceglie un tipo comune widening-compatible (altrimenti `Variant`). Gli altri
+  tipi statici conservano il tipo sinistro perché non possono essere `Nothing`.
+  La valutazione runtime HIR non è ancora collegata all'interprete.
 
 ### MX-S11 — Spread `...`
 
@@ -478,6 +486,13 @@ della presenza di nodi grammaticali.
 - HIR: `Return <expr>` è tipizzato contro il tipo dichiarato della Function;
   conversioni assegnabili sono esplicitate e tipi incompatibili o Return in una
   Sub producono diagnostiche. Questa analisi non è collegata a un esecutore HIR.
+- HIR: `??` è rappresentato da un nodo lazy distinto; il tipo statico conserva
+  `Null`, `Empty` e `Variant` e inferisce il tipo dal fallback per `Nothing`.
+  Per riferimenti a oggetti applica un tipo comune widening-compatible, con
+  `Variant` come fallback statico quando non ne trova uno. Il parser ora tratta
+  `Nothing` come literal expression (anziché identifier) anche nel codice VB6
+  legacy. Il lowerer HIR non è un esecutore: la valutazione runtime del nodo
+  coalescing resta non collegata.
 - Test sintetici interpreter superati: `mx_return_and_short_circuit_are_opt_in_and_executable`,
   `mx_continue_targets_the_nearest_matching_loop`,
   `mx_continue_without_an_enclosing_matching_loop_is_an_error`,
