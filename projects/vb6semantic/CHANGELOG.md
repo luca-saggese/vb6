@@ -6,6 +6,10 @@
   declarations, literals, names, arithmetic expressions, and assignments.
   HIR retains CST byte spans and stable scope/name symbol identities; semantic
   errors and statements not yet lowered prevent a compilable program result.
+- Lower MX `Return <expr>` into typed HIR, validate it against the declared
+  Function result type using VB6 assignment rules, and represent permitted
+  widening and runtime `Variant` conversions explicitly. Reject expression
+  returns in Subs.
 - Lower structured `If`, `While`, `Do`, and counted `For` control flow, and bind
   typed calls with arity and argument compatibility checks.
 - Resolve VB6 symbol names case-insensitively during scope lookup and duplicate
@@ -24,4 +28,5 @@
 ### Validation
 
 `cargo test --offline -p vb6semantic --test mx_s04_s08` passed (6 tests);
+`cargo test --offline -p vb6semantic --test mx_s01_return` passed (4 tests);
 `cargo test --offline -p vb6semantic` passed (unit, integration, and doc tests).

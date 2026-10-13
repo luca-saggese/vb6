@@ -435,7 +435,7 @@ della presenza di nodi grammaticali.
 
 | Estensione | Parser | Semantica | Runtime | Interprete | Test end-to-end |
 |---|---|---|---|---|---|
-| Return expression | PARTIAL | BLOCKED | PARTIAL | PARTIAL | PARTIAL |
+| Return expression | PARTIAL | PARTIAL | PARTIAL | PARTIAL | PARTIAL |
 | Continue For/Do | PARTIAL | BLOCKED | PARTIAL | PARTIAL | PARTIAL |
 | AndAlso/OrElse | PARTIAL | BLOCKED | PARTIAL | PARTIAL | PARTIAL |
 | As Auto | PARTIAL | PARTIAL | BLOCKED | BLOCKED | PARTIAL |
@@ -471,6 +471,9 @@ della presenza di nodi grammaticali.
   sono rifiutati; parameter inference e sorgenti `Variant`, ignote, chiamate o
   membri non verificabili restano diagnostici espliciti. Le regole complete di
   inferenza e conversione non sono implementate.
+- HIR: `Return <expr>` è tipizzato contro il tipo dichiarato della Function;
+  conversioni assegnabili sono esplicitate e tipi incompatibili o Return in una
+  Sub producono diagnostiche. Questa analisi non è collegata a un esecutore HIR.
 - Test sintetici interpreter superati: `mx_return_and_short_circuit_are_opt_in_and_executable`,
   `mx_continue_targets_the_nearest_matching_loop`,
   `mx_continue_without_an_enclosing_matching_loop_is_an_error`,
@@ -485,7 +488,7 @@ della presenza di nodi grammaticali.
   literal di array in `projects/vb6interpret/tests/mx_array_literal.rs`.
 - `projects/vb6interpret/tests/mx_return_conversion.rs` verifica conversione a
   String, errore di mismatch e overflow su Byte.
-- Semantica statica e analisi del tipo di ritorno non sono ancora collegate
+- Il controllo statico del tipo di `Return` nell'HIR non è ancora collegato
   all'interprete. Nessuna compatibilità con Microsoft viene inferita da questi
   test sintetici.
 - Interpolazione: lexer e parser riconoscono `$"..."` solo con opt-in;
@@ -534,7 +537,8 @@ della presenza di nodi grammaticali.
   callback MX e l'interprete chiama procedure sincrone direttamente; manca
   un'API di registrazione/invocazione callback su nuovi frame.
 - Validazione corrente: `cargo test --offline -p vb6parse --lib` (181 test),
-  `cargo test --offline -p vb6semantic --test mx_s04_s08` (6 test), la suite
+  `cargo test --offline -p vb6semantic --test mx_s04_s08` (6 test),
+  `cargo test --offline -p vb6semantic --test mx_s01_return` (4 test), la suite
   completa `cargo test --offline -p vb6semantic` e la suite completa
   `cargo test --offline -p vb6interpret` passano.
   `cargo clippy --offline --lib -p vb6semantic --no-deps` passa senza

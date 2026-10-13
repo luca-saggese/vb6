@@ -1,8 +1,8 @@
 //! Typed high-level intermediate representation for VB6.
 //!
 //! HIR spans are byte ranges in the module CST, which remains the authoritative
-//! source representation. MX-only forms have reserved variants but are not
-//! produced by the VB6 lowering pass.
+//! source representation. Most MX-only forms remain reserved; opt-in
+//! `Return <expr>` is lowered and checked against its Function result type.
 
 use crate::{ScopeKind, ScopeManager, SemanticError};
 use crate::{SourceLocation, TypeInfo};
@@ -235,6 +235,8 @@ pub enum StatementKind {
     },
     /// Expression used as a statement.
     Expression(Expression),
+    /// MX expression return from a Function.
+    Return(Expression),
     /// Structured conditional.
     If {
         /// Branch condition.
@@ -582,7 +584,7 @@ fn lower_unit(
                     || node
                         .descendants()
                         .any(|n| n.kind() == SyntaxKind::GetKeyword);
-                let body = node
+                let mut body: Vec<Statement> = node
                     .first_child_by_kind(SyntaxKind::StatementList)
                     .map(|list| {
                         list.children()
@@ -611,6 +613,7 @@ fn lower_unit(
                 } else {
                     None
                 };
+                check_return_statements(&mut body, return_type.as_ref(), &mut diagnostics);
                 procedures.push(Procedure {
                     name,
                     signature: ProcedureSignature {
@@ -927,7 +930,93 @@ fn lower_statement(
                 info,
             })
         }
+        SyntaxKind::ReturnStatement => {
+            let expression = node
+                .children()
+                .iter()
+                .find(|child| !child.is_token() && is_expression_kind(child.kind()))
+                .ok_or_else(|| unsupported(node, make_info))?;
+            let value = lower_expression(expression, scope_id, scopes, make_info)?;
+            let info = make_info(node, scope_id, value.info.ty.clone());
+            Ok(Statement {
+                kind: StatementKind::Return(value),
+                info,
+            })
+        }
         _ => Err(unsupported(node, make_info)),
+    }
+}
+
+fn check_return_statements(
+    statements: &mut [Statement],
+    return_type: Option<&TypeInfo>,
+    errors: &mut Vec<SemanticError>,
+) {
+    for statement in statements {
+        match &mut statement.kind {
+            StatementKind::Return(value) => {
+                let Some(expected) = return_type else {
+                    errors.push(SemanticError::InvalidOperation {
+                        message: "Return <expr> is valid only in a Function".to_string(),
+                        location: statement.info.location.clone(),
+                    });
+                    continue;
+                };
+                let Some(found) = value.info.ty.as_ref() else {
+                    errors.push(SemanticError::UnsupportedFeature {
+                        feature: "MX S01 Return".to_string(),
+                        reason: "return expression has no statically known type".to_string(),
+                        location: value.info.location.clone(),
+                    });
+                    continue;
+                };
+                if found.kind == vb6core::types::VBType::Variant
+                    && expected.kind != vb6core::types::VBType::Variant
+                {
+                    *value = implicit_conversion(value.clone(), expected.clone());
+                    continue;
+                }
+                match crate::TypeChecker::new().check_assignment(
+                    expected,
+                    found,
+                    &value.info.location,
+                ) {
+                    Ok(()) if expected != found => {
+                        *value = implicit_conversion(value.clone(), expected.clone());
+                    }
+                    Ok(()) => {}
+                    Err(error) => errors.push(error),
+                }
+            }
+            StatementKind::If {
+                then_body,
+                else_body,
+                ..
+            } => {
+                check_return_statements(then_body, return_type, errors);
+                check_return_statements(else_body, return_type, errors);
+            }
+            StatementKind::Loop { body, .. } | StatementKind::For { body, .. } => {
+                check_return_statements(body, return_type, errors)
+            }
+            StatementKind::Select { cases, .. } => {
+                for case in cases {
+                    check_return_statements(&mut case.body, return_type, errors);
+                }
+            }
+            StatementKind::Try {
+                body,
+                catches,
+                finally_body,
+            } => {
+                check_return_statements(body, return_type, errors);
+                for catch in catches {
+                    check_return_statements(catch, return_type, errors);
+                }
+                check_return_statements(finally_body, return_type, errors);
+            }
+            _ => {}
+        }
     }
 }
 
