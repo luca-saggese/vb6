@@ -19,6 +19,9 @@ and this project (tries!) to adheres to [Semantic Versioning](https://semver.org
 - `ContinueStatement` CST node and expression parsing for `Return <expr>` when MX extensions are enabled
 - Contextual `$"..."` interpolated-string tokenization and opt-in expression parsing; VB6 resource references with `:"` numeric suffixes remain on the legacy lexer path
 - Opt-in `??` tokenization and parsing with lowest-precedence, right-associative binding
+- Opt-in parsing for non-empty MX array literals while retaining bracketed
+  identifiers; empty literal typing remains unsupported.
+- Fixed opt-in dispatch for `Continue For/Do` inside single-line `If` bodies.
 
 ### Changed
 - **Massive: Removed flat expression handling** — All statement parsers in vb6parse now use full expression trees instead of flat token consumption. This affects every statement parser in the codebase.

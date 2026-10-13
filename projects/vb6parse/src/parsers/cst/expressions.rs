@@ -968,6 +968,11 @@ impl Parser<'_> {
                     self.consume_error(vec!["Option VB6RExtensions On".to_string()]);
                 }
             }
+            Some(Token::LeftSquareBracket)
+                if self.mx_extensions_enabled && self.starts_mx_array_literal() =>
+            {
+                self.parse_mx_array_literal();
+            }
             Some(Token::TrueKeyword | Token::FalseKeyword) => {
                 self.parse_boolean_literal();
             }
@@ -1127,6 +1132,70 @@ impl Parser<'_> {
         ) {
             self.consume_token();
         }
+    }
+
+    fn starts_mx_array_literal(&self) -> bool {
+        let Some((_, first)) = self.tokens.get(self.pos) else {
+            return false;
+        };
+        if *first != Token::LeftSquareBracket {
+            return false;
+        }
+
+        let mut index = self.pos + 1;
+        while self
+            .tokens
+            .get(index)
+            .is_some_and(|(_, token)| *token == Token::Whitespace)
+        {
+            index += 1;
+        }
+        if self
+            .tokens
+            .get(index)
+            .is_some_and(|(_, token)| *token == Token::RightSquareBracket)
+        {
+            return true;
+        }
+
+        let mut only_identifier_text = true;
+        let mut has_comma = false;
+        while let Some((_, token)) = self.tokens.get(index) {
+            if *token == Token::RightSquareBracket {
+                break;
+            }
+            has_comma |= *token == Token::Comma;
+            only_identifier_text &=
+                *token == Token::Whitespace || *token == Token::Identifier || token.is_keyword();
+            index += 1;
+        }
+        if !has_comma && only_identifier_text {
+            return false;
+        }
+        true
+    }
+
+    fn parse_mx_array_literal(&mut self) {
+        self.builder
+            .start_node(SyntaxKind::ArrayLiteralExpression.to_raw());
+        self.consume_token();
+        self.consume_whitespace();
+        while !self.is_at_end() && !self.at_token(Token::RightSquareBracket) {
+            self.parse_expression();
+            self.consume_whitespace();
+            if self.at_token(Token::Comma) {
+                self.consume_token();
+                self.consume_whitespace();
+            } else {
+                break;
+            }
+        }
+        if self.at_token(Token::RightSquareBracket) {
+            self.consume_token();
+        } else {
+            self.consume_error(vec!["]".to_string()]);
+        }
+        self.builder.finish_node();
     }
 
     /// Parse a VB6 file-number reference used in expressions.

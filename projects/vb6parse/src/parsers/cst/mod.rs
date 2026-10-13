@@ -3047,6 +3047,10 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_single_line_if_statement_item(&mut self) -> bool {
+        if self.is_mx_continue_statement() {
+            self.parse_continue_statement();
+            return true;
+        }
         if self.is_control_flow_keyword() {
             self.parse_control_flow_statement();
             return true;

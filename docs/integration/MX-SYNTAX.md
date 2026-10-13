@@ -439,7 +439,7 @@ della presenza di nodi grammaticali.
 | `?.` | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED |
 | `??` | PARTIAL | BLOCKED | PARTIAL | PARTIAL | PARTIAL |
 | Spread `...` | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED |
-| Array literals | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED |
+| Array literals | PARTIAL | BLOCKED | PARTIAL | PARTIAL | PARTIAL |
 | Destructuring | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED |
 | Lambda/closure | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED |
 | Generics | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED |
@@ -454,15 +454,20 @@ della presenza di nodi grammaticali.
   ancora coperta con evidenza end-to-end.
 - Interprete: `Return <expr>` termina una Function; i continue attraversano
   loop non corrispondenti e arrivano al loop più vicino del tipo corretto;
+  anche `Continue For/Do` inline in `If ... Then` propagano il flusso al loop;
   gli operatori short-circuit non valutano l'operando destro quando evitabile.
 - Test sintetici interpreter superati: `mx_return_and_short_circuit_are_opt_in_and_executable`,
   `mx_continue_targets_the_nearest_matching_loop`,
   `mx_continue_without_an_enclosing_matching_loop_is_an_error`,
+  `mx_continue_for_is_executable_in_single_line_if`,
+  `mx_continue_do_is_executable_in_single_line_if`,
+  `inline_continue_remains_a_legacy_procedure_call_without_opt_in`,
   `mx_keywords_remain_identifiers_without_the_module_opt_in`,
   `mx_interpolated_strings_evaluate_expressions_and_escape_braces` e
   `mx_interpolated_strings_require_the_module_opt_in` e
   `mx_null_coalescing_only_falls_back_for_nothing_and_is_opt_in` in
-  `projects/vb6interpret/tests/run.rs`.
+  `projects/vb6interpret/tests/run.rs`; test separati coprono inoltre i
+  literal di array in `projects/vb6interpret/tests/mx_array_literal.rs`.
 - Semantica statica e analisi del tipo di ritorno non sono ancora collegate
   all'interprete. Nessuna compatibilità con Microsoft viene inferita da questi
   test sintetici.
@@ -477,6 +482,12 @@ della presenza di nodi grammaticali.
   lato destro solo quando il sinistro è `Nothing`; `Null` ed `Empty` vengono
   restituiti invariati. Il test sintetico verifica fallback, sentinels e
   comportamento senza opt-in; manca il type checking semantico end-to-end.
+- Array literals: i literal non vuoti `[ ... ]` sono accettati solo con
+  l'opt-in, producono array rank-1 con lower bound zero e inferenza limitata
+  al tipo comune supportato; gli identificatori delimitati tra parentesi
+  quadre restano tali con opt-in attivo o spento. `[]` genera un errore VB
+  esplicito: manca il passaggio di contesto tipizzato all'interprete per
+  inferirne il tipo elemento. Non è quindi una feature completa.
 - `As Auto` e `Option Strict` sono diagnosi semantiche esplicite di supporto
   non disponibile, non feature implementate: l'inferenza e il type checking
   d'espressione sono bloccati dall'architettura dell'analizzatore.
@@ -484,7 +495,9 @@ della presenza di nodi grammaticali.
   nel flusso di controllo, e protocollo runtime `Dispose`.
 - Validazione corrente: `cargo test --offline -p vb6parse --lib` (181 test),
   `cargo test --offline -p vb6semantic --test mx_s04_s08` (2 test) e la
-  suite completa `cargo test --offline -p vb6interpret` (215 test) passano.
+  suite completa `cargo test --offline -p vb6interpret` (222 test) passano.
+  `mx_array_literal` (4 test) e `mx_inline_continue` (3 test) sono inclusi
+  nella suite completa.
   Clippy mirato con `-D warnings` e `rustfmt --check` sui file Rust modificati
   passano.
   La suite d'integrazione completa `vb6parse` resta bloccata da fixture

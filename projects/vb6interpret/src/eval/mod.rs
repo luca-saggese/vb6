@@ -17,9 +17,10 @@ use crate::error::{BuiltinCallInfo, RunError, RunResult};
 use crate::interpreter::Interpreter;
 use crate::scope::normalize;
 use vb6core::error::{VBError, VBResult, err_number};
+use vb6core::types::VBType;
 use vb6parse::parsers::SyntaxKind;
 use vb6parse::parsers::cst::CstNode;
-use vb6runtime::VBVariant;
+use vb6runtime::{ArrayDimension, ArrayValue, VBVariant};
 
 #[derive(Debug, PartialEq)]
 enum InterpolatedPart {
@@ -52,6 +53,7 @@ impl Interpreter {
                     self.eval_literal(node)
                 }
             }
+            SyntaxKind::ArrayLiteralExpression => self.eval_array_literal(node),
             SyntaxKind::IdentifierExpression => self.eval_identifier(node),
             SyntaxKind::BinaryExpression => {
                 let parts: Vec<&CstNode> = node.significant_children().collect();
@@ -123,6 +125,47 @@ impl Interpreter {
                 None,
             )),
         }
+    }
+
+    fn eval_array_literal(&mut self, node: &CstNode) -> RunResult<VBVariant> {
+        let elements: Vec<&CstNode> = node
+            .significant_children()
+            .filter(|child| {
+                !matches!(
+                    child.kind(),
+                    SyntaxKind::LeftSquareBracket
+                        | SyntaxKind::RightSquareBracket
+                        | SyntaxKind::Comma
+                )
+            })
+            .collect();
+        if elements.is_empty() {
+            return Err(self.error_at(
+                node,
+                VBError::with_description(
+                    err_number::INVALID_PROCEDURE_CALL,
+                    "Empty array literal requires a typed context, which is not available",
+                ),
+                None,
+            ));
+        }
+
+        let mut values = Vec::with_capacity(elements.len());
+        for element in elements {
+            values.push(self.eval_expr(element)?);
+        }
+        let element_type = common_array_element_type(&values)
+            .ok_or_else(|| self.error_at(node, VBError::type_mismatch(), None))?;
+        let upper = i32::try_from(values.len() - 1)
+            .map_err(|_| self.error_at(node, VBError::out_of_memory(), None))?;
+        let mut array = ArrayValue::new_fixed(element_type, &[ArrayDimension::new(0, upper)])
+            .map_err(|error| self.error_at(node, error, None))?;
+        for (index, value) in values.into_iter().enumerate() {
+            array
+                .set(&[index as i32], value)
+                .map_err(|error| self.error_at(node, error, None))?;
+        }
+        Ok(VBVariant::Array(array))
     }
 
     /// Evaluate a literal node (also usable for bare literal tokens, as found
@@ -544,6 +587,67 @@ fn invalid_interpolation(reason: &str) -> VBError {
         err_number::INVALID_PROCEDURE_CALL,
         format!("Invalid interpolated string: {reason}"),
     )
+}
+
+fn common_array_element_type(values: &[VBVariant]) -> Option<VBType> {
+    let mut common = values.first()?.type_of();
+    for value in &values[1..] {
+        let next = value.type_of();
+        common = match (&common, &next) {
+            (left, right) if left == right => left.clone(),
+            (
+                VBType::Byte | VBType::Integer | VBType::Long | VBType::Enum(_),
+                VBType::Byte | VBType::Integer | VBType::Long | VBType::Enum(_),
+            ) => integer_widening_type(&common, &next)?,
+            (
+                VBType::Byte | VBType::Integer | VBType::Long | VBType::Enum(_) | VBType::Single,
+                VBType::Single,
+            )
+            | (VBType::Single, VBType::Byte | VBType::Integer | VBType::Long | VBType::Enum(_)) => {
+                VBType::Single
+            }
+            (
+                VBType::Byte
+                | VBType::Integer
+                | VBType::Long
+                | VBType::Enum(_)
+                | VBType::Single
+                | VBType::Double,
+                VBType::Double,
+            )
+            | (
+                VBType::Double,
+                VBType::Byte | VBType::Integer | VBType::Long | VBType::Enum(_) | VBType::Single,
+            ) => VBType::Double,
+            (VBType::Currency, VBType::Byte | VBType::Integer | VBType::Long | VBType::Enum(_))
+            | (VBType::Byte | VBType::Integer | VBType::Long | VBType::Enum(_), VBType::Currency) => {
+                VBType::Currency
+            }
+            (VBType::Currency, VBType::Single | VBType::Double)
+            | (VBType::Single | VBType::Double, VBType::Currency) => VBType::Double,
+            _ => return None,
+        };
+    }
+    Some(match common {
+        VBType::Enum(_) => VBType::Long,
+        other => other,
+    })
+}
+
+fn integer_widening_type(left: &VBType, right: &VBType) -> Option<VBType> {
+    fn rank(ty: &VBType) -> Option<u8> {
+        match ty {
+            VBType::Byte => Some(0),
+            VBType::Integer => Some(1),
+            VBType::Long | VBType::Enum(_) => Some(2),
+            _ => None,
+        }
+    }
+    match rank(left)?.max(rank(right)?) {
+        0 => Some(VBType::Byte),
+        1 => Some(VBType::Integer),
+        _ => Some(VBType::Long),
+    }
 }
 
 // Re-exported for builtins that need currency scaling.

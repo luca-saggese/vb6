@@ -675,6 +675,8 @@ pub enum SyntaxKind {
     InterpolatedStringLiteral,
     /// MX null-coalescing operator token.
     NullCoalescingOperator,
+    /// MX non-empty array literal expression.
+    ArrayLiteralExpression,
 }
 
 impl Display for SyntaxKind {
@@ -888,7 +890,7 @@ impl From<Token> for SyntaxKind {
 
 impl SyntaxKind {
     pub(crate) fn from_raw(raw: rowan::SyntaxKind) -> Self {
-        assert!(raw.0 <= SyntaxKind::NullCoalescingOperator as u16);
+        assert!(raw.0 <= SyntaxKind::ArrayLiteralExpression as u16);
         unsafe { std::mem::transmute::<u16, SyntaxKind>(raw.0) }
     }
 
