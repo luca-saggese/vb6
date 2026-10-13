@@ -5356,6 +5356,7 @@ dependencies = [
  "thiserror 2.0.20",
  "vb6core",
  "vb6parse",
+ "vb6pcode",
  "vb6runtime",
  "vb6semantic",
 ]
@@ -5482,6 +5483,9 @@ dependencies = [
 [[package]]
 name = "vb6pcode"
 version = "0.1.0"
+dependencies = [
+ "vb6core",
+]
 
 [[package]]
 name = "vb6runtime"

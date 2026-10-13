@@ -10,6 +10,12 @@ opcodes belong to a separate namespace and must not be added to these six
 Microsoft dispatch tables; see the repository's
 [MX syntax specification](../../docs/integration/MX-SYNTAX.md).
 
+The separate [`canonical` module](src/canonical.rs) defines the versioned
+VB6R in-memory instruction format and validator. Its instructions are not
+Microsoft opcodes and are not executable until a VM implements their contracts.
+The current HIR compiler emits no Microsoft catalog opcode; see the
+[HIR/P-Code coverage matrix](../../docs/integration/HIR-PCODE.md).
+
 See [catalog provenance and generation](docs/CATALOG.md) and
 [the changelog](CHANGELOG.md).
 

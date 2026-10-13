@@ -1,5 +1,7 @@
 //! Standalone metadata catalog and byte-stream decoder for Microsoft VB6 P-Code.
 
+pub mod canonical;
+
 use std::{error::Error, fmt};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
