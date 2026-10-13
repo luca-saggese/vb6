@@ -42,26 +42,59 @@ impl TypeChecker {
         &self,
         left_type: &TypeInfo,
         right_type: &TypeInfo,
-        _operation: &str,
-        _location: &SourceLocation,
+        operation: &str,
+        location: &SourceLocation,
     ) -> Result<TypeInfo> {
-        // Variant propagates
+        let operator = operation.to_ascii_lowercase();
+        if operation == "&"
+            && (matches!(
+                left_type.kind,
+                VBType::Variant | VBType::String | VBType::Boolean | VBType::Date
+            ) || self.is_numeric(&left_type.kind))
+            && (matches!(
+                right_type.kind,
+                VBType::Variant | VBType::String | VBType::Boolean | VBType::Date
+            ) || self.is_numeric(&right_type.kind))
+        {
+            return Ok(TypeInfo::string());
+        }
         if matches!(left_type.kind, VBType::Variant) || matches!(right_type.kind, VBType::Variant) {
             return Ok(TypeInfo::variant());
         }
 
-        // Numeric operations
-        if self.is_numeric(&left_type.kind) && self.is_numeric(&right_type.kind) {
+        let both_numeric = self.is_numeric(&left_type.kind) && self.is_numeric(&right_type.kind);
+        if both_numeric
+            && matches!(
+                operator.as_str(),
+                "+" | "-" | "*" | "/" | "\\" | "^" | "mod"
+            )
+        {
             return Ok(self.promote_numeric_types(left_type, right_type));
         }
-
-        // String concatenation
-        if matches!(left_type.kind, VBType::String) || matches!(right_type.kind, VBType::String) {
+        if operator == "+" && left_type.kind == VBType::String && right_type.kind == VBType::String
+        {
             return Ok(TypeInfo::string());
         }
-
-        // Default to variant for unknown operations
-        Ok(TypeInfo::variant())
+        if matches!(operator.as_str(), "=" | "<>" | "<" | ">" | "<=" | ">=")
+            && (both_numeric || left_type.kind == right_type.kind)
+        {
+            return Ok(TypeInfo::new(VBType::Boolean));
+        }
+        if matches!(operator.as_str(), "and" | "or" | "xor" | "eqv" | "imp") {
+            if both_numeric {
+                return Ok(self.promote_numeric_types(left_type, right_type));
+            }
+            if left_type.kind == VBType::Boolean && right_type.kind == VBType::Boolean {
+                return Ok(TypeInfo::new(VBType::Boolean));
+            }
+        }
+        Err(SemanticError::InvalidOperation {
+            message: format!(
+                "operator `{operation}` is not supported for {} and {}",
+                left_type, right_type
+            ),
+            location: location.clone(),
+        })
     }
 
     fn is_numeric(&self, kind: &VBType) -> bool {

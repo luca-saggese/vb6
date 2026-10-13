@@ -110,6 +110,9 @@ pub struct SemanticAnalyzer {
     /// being analyzed (consumed by [`Self::resolve_pending`]).
     procedure_scopes: HashMap<u32, usize>,
 
+    /// Procedure declaration offset → scope ID retained for subsequent HIR lowering.
+    hir_procedure_scopes: HashMap<u32, usize>,
+
     /// Files waiting for reference resolution once the project is registered.
     pending_resolution: Vec<PendingResolution>,
 }
@@ -133,6 +136,7 @@ impl SemanticAnalyzer {
             query_index: QueryIndex::new(),
             defer_resolution: false,
             procedure_scopes: HashMap::new(),
+            hir_procedure_scopes: HashMap::new(),
             pending_resolution: Vec::new(),
         }
     }
@@ -361,6 +365,7 @@ impl SemanticAnalyzer {
 
     /// Analyze a module file
     pub fn analyze_module(&mut self, module: &vb6parse::files::ModuleFile) -> Result<()> {
+        self.hir_procedure_scopes.clear();
         self.current_file = Some(module.name.clone());
 
         // Create module scope
@@ -386,6 +391,39 @@ impl SemanticAnalyzer {
         self.scope_manager.pop_scope()?;
         self.finish_file_resolution(root, module_scope, module.line_offset)?;
         Ok(())
+    }
+
+    /// Analyze a VB6 module and construct a typed HIR when there are no
+    /// blocking semantic diagnostics.
+    pub fn analyze_module_hir(
+        &mut self,
+        module: &vb6parse::files::ModuleFile,
+    ) -> Result<crate::hir::HirAnalysis> {
+        let error_start = self.errors.len();
+        self.analyze_module(module)?;
+        Ok(crate::hir::lower_module(
+            module,
+            &self.scope_manager,
+            &self.hir_procedure_scopes,
+            &self.errors[error_start..],
+            &self.warnings,
+        ))
+    }
+
+    /// Analyze a VB6 class and construct typed HIR when validation succeeds.
+    pub fn analyze_class_hir(
+        &mut self,
+        class: &vb6parse::files::ClassFile,
+    ) -> Result<crate::hir::HirAnalysis> {
+        let error_start = self.errors.len();
+        self.analyze_class(class)?;
+        Ok(crate::hir::lower_class(
+            class,
+            &self.scope_manager,
+            &self.hir_procedure_scopes,
+            &self.errors[error_start..],
+            &self.warnings,
+        ))
     }
 
     /// Analyze a class reference from the project file class reference
@@ -429,6 +467,7 @@ impl SemanticAnalyzer {
 
     /// Analyze a class file
     pub fn analyze_class(&mut self, class: &vb6parse::files::ClassFile) -> Result<()> {
+        self.hir_procedure_scopes.clear();
         let class_name = class.header.attributes.name.clone();
         self.current_file = Some(class_name.clone());
 
@@ -657,6 +696,14 @@ impl SemanticAnalyzer {
             let Some(symbol) = self.scope_manager.lookup(child.text()) else {
                 continue;
             };
+            if matches!(symbol.kind, SymbolKind::Variable | SymbolKind::Constant)
+                && self
+                    .scope_manager
+                    .get_scope(symbol.scope_id)
+                    .is_some_and(|scope| scope.kind == ScopeKind::Procedure)
+            {
+                continue;
+            }
             let reference = QueryReference::new(
                 if is_type_reference {
                     ReferenceKind::TypeReference
@@ -892,7 +939,13 @@ impl SemanticAnalyzer {
                 scope_id,
                 attributes,
             })?;
-            self.record_definition(scope_id, &item.name, item.offset, item.end);
+            if self
+                .scope_manager
+                .get_scope(scope_id)
+                .is_none_or(|scope| scope.kind != ScopeKind::Procedure)
+            {
+                self.record_definition(scope_id, &item.name, item.offset, item.end);
+            }
         }
         Ok(())
     }
@@ -1095,7 +1148,10 @@ impl SemanticAnalyzer {
                 .is_some()
         {
             if let Some(scope) = self.scope_manager.get_scope_mut(scope_id)
-                && let Some(existing) = scope.symbols.get_mut(&name)
+                && let Some(existing) = scope
+                    .symbols
+                    .values_mut()
+                    .find(|symbol| symbol.name.eq_ignore_ascii_case(&name))
             {
                 let accessor = match kind {
                     SymbolKind::PropertyGet => "get",
@@ -1140,7 +1196,18 @@ impl SemanticAnalyzer {
         // Remember the procedure scope so the second (reference resolution)
         // pass can restore it, then balance the push.
         let procedure_scope = self.register_parameters(statement, name)?;
+        if let Some(body) = statement.first_child_by_kind(SyntaxKind::StatementList) {
+            for local in body
+                .descendants()
+                .filter(|node| node.kind() == SyntaxKind::DimStatement)
+            {
+                let line = 1 + Self::preceding_newlines(statement, &local);
+                self.process_dim_statement(&local, line)?;
+            }
+        }
         self.procedure_scopes
+            .insert(statement.start_offset(), procedure_scope);
+        self.hir_procedure_scopes
             .insert(statement.start_offset(), procedure_scope);
         self.scope_manager.pop_scope()?;
         Ok(())
@@ -1265,7 +1332,10 @@ impl SemanticAnalyzer {
             .map(|s| s.name.clone());
         if let Some(self_name) = self_name
             && let Some(scope) = self.scope_manager.get_scope_mut(scope_id)
-            && let Some(symbol) = scope.symbols.get_mut(&self_name)
+            && let Some(symbol) = scope
+                .symbols
+                .values_mut()
+                .find(|symbol| symbol.name.eq_ignore_ascii_case(&self_name))
         {
             let entry = symbol
                 .attributes

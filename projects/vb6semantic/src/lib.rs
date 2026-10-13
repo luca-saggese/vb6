@@ -36,6 +36,8 @@
 
 pub mod analyzer;
 pub mod error;
+/// Typed high-level intermediate representation.
+pub mod hir;
 pub mod location;
 pub mod query;
 pub mod references;
@@ -53,6 +55,12 @@ pub mod wasm;
 pub use analyzer::SemanticAnalyzer;
 /// Semantic analysis errors and results.
 pub use error::{Result, SemanticError, SourceLocation};
+/// Result and node types for typed HIR construction.
+pub use hir::{
+    CaseClause, ConversionKind, Declaration, DeclarationKind, Expression, ExpressionKind,
+    HirAnalysis, NodeInfo, Operator, Parameter, PassingMode, Procedure, ProcedureSignature,
+    SourceSpan, Statement, StatementKind, SymbolId, TypedProgram, UnitKind,
+};
 /// Resolved references registry and resolvers.
 pub use references::{
     ManifestReferenceResolver, ReferenceContext, ReferenceInfo, ReferenceRegistry,
