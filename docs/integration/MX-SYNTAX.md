@@ -362,7 +362,8 @@ necessari come `IMPLEMENTED`.
 - `Return <expr>` è valido solo in una `Function`; `Return` senza espressione
   mantiene sempre il significato legacy GoSub. In una `Sub`, l'espressione di
   Return è un errore semantico. Valore e conversione di ritorno sono valutati
-  una volta sola.
+  una volta sola; conversioni incompatibili e overflow propagano l'errore VB6
+  invece di restituire il valore senza conversione.
 - `Continue For` e `Continue Do` si applicano al ciclo attivo più vicino del
   tipo indicato. Attraversano cicli annidati di altro tipo e non possono
   essere intercettati da un loop non corrispondente.
@@ -456,9 +457,11 @@ della presenza di nodi grammaticali.
 
 - Parser: l'opt-in di modulo riconosce `Option VB6RExtensions On`; sono state
   aggiunte produzioni per `Return <expr>`, `Continue For/Do` in statement list
-  e `AndAlso`/`OrElse` contestuali. La forma `Continue` in `If` inline non è
-  ancora coperta con evidenza end-to-end.
-- Interprete: `Return <expr>` termina una Function; i continue attraversano
+  e `AndAlso`/`OrElse` contestuali. `Continue` in `If` inline è coperto da test
+  d'esecuzione dedicati.
+- Interprete: `Return <expr>` termina una Function e converte il risultato al
+  tipo dichiarato con conversioni checked (mismatch e overflow propagano
+  l'errore VB6); i continue attraversano
   loop non corrispondenti e arrivano al loop più vicino del tipo corretto;
   anche `Continue For/Do` inline in `If ... Then` propagano il flusso al loop;
   gli operatori short-circuit non valutano l'operando destro quando evitabile.
@@ -474,6 +477,8 @@ della presenza di nodi grammaticali.
   `mx_null_coalescing_only_falls_back_for_nothing_and_is_opt_in` in
   `projects/vb6interpret/tests/run.rs`; test separati coprono inoltre i
   literal di array in `projects/vb6interpret/tests/mx_array_literal.rs`.
+- `projects/vb6interpret/tests/mx_return_conversion.rs` verifica conversione a
+  String, errore di mismatch e overflow su Byte.
 - Semantica statica e analisi del tipo di ritorno non sono ancora collegate
   all'interprete. Nessuna compatibilità con Microsoft viene inferita da questi
   test sintetici.

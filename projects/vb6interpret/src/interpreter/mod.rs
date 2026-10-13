@@ -19,6 +19,7 @@ use std::collections::HashMap;
 
 use vb6core::error::VBError;
 use vb6core::error::err_number;
+use vb6core::types::VBType;
 use vb6parse::files::ModuleFile;
 use vb6runtime::VBVariant;
 use vb6runtime::state::environment as env_state;
@@ -39,6 +40,8 @@ pub(crate) struct Frame {
     pub(crate) name: String,
     /// Whether the procedure returns a value (Function).
     pub(crate) is_function: bool,
+    /// Declared result type, used by MX `Return <expr>` conversions.
+    pub(crate) return_type: VBType,
     /// Local variables for this call.
     pub(crate) locals: Scope,
     /// The value written to the function name (the return value).
@@ -696,6 +699,7 @@ impl Interpreter {
         let mut frame = Frame {
             name: procedure.name.clone(),
             is_function: procedure.is_function,
+            return_type: procedure.return_type.clone(),
             locals: Scope::new(),
             return_value: None,
         };

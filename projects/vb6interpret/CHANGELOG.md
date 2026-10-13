@@ -30,9 +30,12 @@
   explicitly while the runtime object model is unavailable.
 - Continue signals are scoped to the active procedure and matching loop;
   invalid targets produce a runtime error instead of escaping into callers.
+- MX `Return <expr>` now converts its value to the declared Function result
+  type through checked `VBVariant` conversions; type mismatch and overflow are
+  propagated instead of silently returning an unconverted value.
 - These features remain partial: MX static validation, function return-type
-  conversion checks, single-line Continue coverage, and broader legacy
-  regression evidence remain outstanding.
+  checks outside the interpreter, and broader legacy regression evidence
+  remain outstanding.
 
 ### Validation
 
@@ -40,7 +43,8 @@
 `cargo test --offline -p vb6interpret --test run mx_` passed (7 tests);
 `mx_array_literal` passed (4 tests), `mx_inline_continue` passed (3 tests),
 `mx_spread` passed (6 tests), `mx_optional_member_access` passed (4 tests),
-and the full `vb6interpret` suite passed (232 tests); `vb6parse --lib`
+`mx_return_conversion` passed (3 tests), and the full `vb6interpret` suite
+passed; `vb6parse --lib`
 passed (181 tests), and `cargo test --offline -p vb6semantic --test
 mx_s04_s08` passed (2 tests).
 `cargo clippy --offline --lib -p vb6parse -p vb6semantic -p vb6interpret -- -D warnings`

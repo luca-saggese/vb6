@@ -20,8 +20,10 @@ mod util;
 pub(crate) use util::{coerce, count_newlines};
 
 use vb6core::error::{VBError, err_number};
+use vb6core::types::VBType;
 use vb6parse::parsers::SyntaxKind;
 use vb6parse::parsers::cst::CstNode;
+use vb6runtime::VBVariant;
 
 use crate::error::{BuiltinCallInfo, RunError, RunResult};
 use crate::interpreter::{Flow, Interpreter};
@@ -237,11 +239,40 @@ impl Interpreter {
         let Some(value) = value else {
             return Err(self.unsupported(node, "legacy GoSub/Return"));
         };
-        let Some(frame) = self.frames.last_mut().filter(|frame| frame.is_function) else {
+        let Some(frame) = self.frames.last().filter(|frame| frame.is_function) else {
             return Err(self.error_here(VBError::invalid_procedure_call(), None));
         };
-        frame.return_value = Some(value);
+        let return_type = frame.return_type.clone();
+        let value = Self::coerce_return_value(value, &return_type)
+            .map_err(|error| self.error_here(error, None))?;
+        self.frames
+            .last_mut()
+            .expect("function frame was checked above")
+            .return_value = Some(value);
         Ok(Flow::Return)
+    }
+
+    fn coerce_return_value(value: VBVariant, ty: &VBType) -> Result<VBVariant, VBError> {
+        match ty {
+            VBType::Variant | VBType::Unknown => Ok(value),
+            VBType::Byte => value.as_byte().map(VBVariant::Byte),
+            VBType::Integer => value.as_i16().map(VBVariant::Integer),
+            VBType::Long | VBType::Enum(_) => value.as_i32().map(VBVariant::Long),
+            VBType::Single => value.as_f32().map(VBVariant::Single),
+            VBType::Double => value.as_f64().map(VBVariant::Double),
+            VBType::Currency => value.as_currency_scaled().map(VBVariant::Currency),
+            VBType::Decimal => value.as_vbdecimal().map(VBVariant::Decimal),
+            VBType::String => value.as_string().map(VBVariant::from_string),
+            VBType::Boolean => value.as_bool().map(VBVariant::Boolean),
+            VBType::Date => value.as_date_serial().map(VBVariant::Date),
+            VBType::Object | VBType::Class(_) if value.is_object() || value.is_nothing() => {
+                Ok(value)
+            }
+            VBType::Nothing if value.is_nothing() => Ok(value),
+            VBType::Array(_) if matches!(&value, VBVariant::Array(_)) => Ok(value),
+            VBType::Error if matches!(&value, VBVariant::Error(_)) => Ok(value),
+            _ => Err(VBError::type_mismatch()),
+        }
     }
 
     /// Unsupported-construct error.
