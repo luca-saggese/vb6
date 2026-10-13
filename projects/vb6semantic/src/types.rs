@@ -38,25 +38,35 @@ impl TypeChecker {
     }
 
     /// Check the intentionally bounded MX `Option Strict` assignment slice.
-    /// Only identical, known, non-Variant types are accepted.
+    /// Known VB6 widening assignments are accepted; dynamic narrowing is not.
     pub fn check_strict_assignment(
         &self,
         target_type: &TypeInfo,
         source_type: &TypeInfo,
         location: &SourceLocation,
     ) -> Result<()> {
-        if matches!(target_type.kind, VBType::Unknown | VBType::Variant)
-            || matches!(source_type.kind, VBType::Unknown | VBType::Variant)
+        if matches!(target_type.kind, VBType::Unknown)
+            || matches!(source_type.kind, VBType::Unknown)
         {
             return Err(SemanticError::UnsupportedFeature {
                 feature: "MX S08 Option Strict".to_string(),
-                reason:
-                    "assignment uses an unknown or Variant type that this checker cannot decide"
-                        .to_string(),
+                reason: "assignment uses an unknown type that this checker cannot decide"
+                    .to_string(),
                 location: location.clone(),
             });
         }
-        if target_type == source_type {
+        if target_type.is_array
+            || source_type.is_array
+            || matches!(target_type.kind, VBType::Array(_))
+            || matches!(source_type.kind, VBType::Array(_))
+        {
+            return Err(SemanticError::UnsupportedFeature {
+                feature: "MX S08 Option Strict".to_string(),
+                reason: "array assignment compatibility is not checked by this slice".to_string(),
+                location: location.clone(),
+            });
+        }
+        if source_type.can_assign_to(target_type) {
             Ok(())
         } else {
             Err(SemanticError::TypeMismatch {

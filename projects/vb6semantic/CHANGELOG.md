@@ -25,8 +25,9 @@
   and use without the MX option produce explicit diagnostics; legacy untyped
   declarations remain `Variant`.
 - Add partial `Option Strict On` HIR checks for known typed assignments.
-  Differing types are rejected; `Variant`, unknown, call/member expressions,
-  and other unsupported cases are diagnosed rather than silently accepted.
+  VB6 widening assignments and assignments to `Variant` are accepted; narrowing
+  and `Variant`-to-typed assignments are rejected. Unknown types, array
+  assignments, and call/member expressions remain explicitly unsupported.
 - Preserve distinct HIR types for `Nothing`, `Null`, and `Empty`.
 
 ### Validation

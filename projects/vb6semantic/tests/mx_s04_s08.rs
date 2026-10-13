@@ -100,11 +100,22 @@ fn option_strict_enforces_known_typed_assignments_only_with_mx_opt_in() {
     assert!(good.errors.is_empty(), "{:?}", good.errors);
     assert!(good.program.is_some());
 
+    let widening = analyze(&format!(
+        "{MX}Option Strict On\n\
+         Public Sub Work()\n\
+             Dim target As Double\n\
+             Dim source As Long\n\
+             target = source\n\
+         End Sub\n"
+    ));
+    assert!(widening.errors.is_empty(), "{:?}", widening.errors);
+    assert!(widening.program.is_some());
+
     let bad = analyze(&format!(
         "{MX}Option Strict On\n\
          Public Sub Work()\n\
-             Dim count As Long\n\
-             Dim source As Integer\n\
+             Dim count As Integer\n\
+             Dim source As Long\n\
              count = source\n\
          End Sub\n"
     ));
@@ -112,10 +123,22 @@ fn option_strict_enforces_known_typed_assignments_only_with_mx_opt_in() {
     assert!(bad.errors.iter().any(|error| matches!(
         error,
         SemanticError::TypeMismatch { expected, found, .. }
-            if expected == "Long" && found == "Integer"
+            if expected == "Integer" && found == "Long"
     )));
 
-    let unknown = TypeChecker::new()
+    TypeChecker::new()
+        .check_strict_assignment(
+            &TypeInfo::variant(),
+            &TypeInfo::new(VBType::Long),
+            &vb6semantic::SourceLocation {
+                file: "test.bas".to_string(),
+                line: 1,
+                column: 1,
+            },
+        )
+        .expect("assignment to Variant is allowed");
+
+    let variant_to_long = TypeChecker::new()
         .check_strict_assignment(
             &TypeInfo::new(VBType::Long),
             &TypeInfo::variant(),
@@ -127,9 +150,26 @@ fn option_strict_enforces_known_typed_assignments_only_with_mx_opt_in() {
         )
         .unwrap_err();
     assert!(matches!(
+        variant_to_long,
+        SemanticError::TypeMismatch { expected, found, .. }
+            if expected == "Long" && found == "Variant"
+    ));
+
+    let unknown = TypeChecker::new()
+        .check_strict_assignment(
+            &TypeInfo::new(VBType::Long),
+            &TypeInfo::unknown(),
+            &vb6semantic::SourceLocation {
+                file: "test.bas".to_string(),
+                line: 1,
+                column: 1,
+            },
+        )
+        .unwrap_err();
+    assert!(matches!(
         unknown,
         SemanticError::UnsupportedFeature { feature, reason, .. }
-            if feature == "MX S08 Option Strict" && reason.contains("Variant")
+            if feature == "MX S08 Option Strict" && reason.contains("unknown")
     ));
 }
 

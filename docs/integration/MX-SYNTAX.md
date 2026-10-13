@@ -467,9 +467,10 @@ della presenza di nodi grammaticali.
   gli operatori short-circuit non valutano l'operando destro quando evitabile.
 - Semantica: con opt-in, `As Auto` inferisce literal numerici, stringa,
   Boolean e `Nothing` in dichiarazioni; `Option Strict On` verifica
-  assegnazioni fra tipi noti e uguali nei corpi delle procedure. Tipi diversi
-  sono rifiutati; parameter inference e sorgenti `Variant`, ignote, chiamate o
-  membri non verificabili restano diagnostici espliciti. Le regole complete di
+  assegnazioni widening-safe a tipi noti nei corpi delle procedure. Narrowing e
+  conversioni implicite da `Variant` verso un tipo statico sono rifiutati;
+  assegnazioni a `Variant` sono ammesse. Parameter inference, tipi ignoti,
+  array, chiamate o membri non verificabili restano diagnostici espliciti. Le regole complete di
   inferenza e conversione non sono implementate. `AndAlso`/`OrElse` hanno nodi
   HIR distinti, risultato Boolean e conversioni Boolean esplicite; `Null` ed
   `Empty` mantengono il proprio tipo sorgente, mentre gli oggetti generano un
@@ -530,10 +531,11 @@ della presenza di nodi grammaticali.
   opt-in producono diagnostiche esplicite. L'inferenza da espressioni generali
   resta `BLOCKED`.
 - `Option Strict On` controlla parzialmente le assegnazioni a variabili
-  tipizzate note nei corpi delle procedure: accetta tipi uguali e rifiuta tipi
-  differenti; sorgenti `Variant`/ignote e chiamate/membri non verificabili
-  generano diagnostiche. Espressioni, chiamate, assegnazioni a livello modulo
-  e conversioni implicite non sono ancora coperti end-to-end.
+  tipizzate note nei corpi delle procedure: accetta widening VB6 e destinazioni
+  `Variant`, rifiuta narrowing e conversioni da sorgenti `Variant`; tipi ignoti,
+  array e chiamate/membri non verificabili generano diagnostiche. Espressioni,
+  chiamate, assegnazioni a livello modulo e conversioni esplicite non sono
+  ancora coperti end-to-end.
 - S06/S07 sono `BLOCKED`: mancano produzioni compound, unwinding del cleanup
   nel flusso di controllo, e protocollo runtime `Dispose`.
 - `VBTask.Then/Catch` resta `BLOCKED`: `vb6runtime` non espone un tipo task o
