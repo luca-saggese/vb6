@@ -115,6 +115,8 @@ pub struct SemanticAnalyzer {
 
     /// Files waiting for reference resolution once the project is registered.
     pending_resolution: Vec<PendingResolution>,
+    mx_enabled: bool,
+    option_strict: bool,
 }
 
 impl SemanticAnalyzer {
@@ -138,6 +140,8 @@ impl SemanticAnalyzer {
             procedure_scopes: HashMap::new(),
             hir_procedure_scopes: HashMap::new(),
             pending_resolution: Vec::new(),
+            mx_enabled: false,
+            option_strict: false,
         }
     }
 
@@ -384,6 +388,8 @@ impl SemanticAnalyzer {
 
         // Process module-level declarations
         let root = module.cst.to_root_node();
+        self.mx_enabled = Self::module_option_enabled(&root, "VB6RExtensions");
+        self.option_strict = self.mx_enabled && Self::module_option_enabled(&root, "Strict");
         self.line_index = LineIndex::from_cst_root(&root);
         self.current_line_offset = module.line_offset;
         self.process_statements(&root, root.children(), module.line_offset)?;
@@ -401,13 +407,17 @@ impl SemanticAnalyzer {
     ) -> Result<crate::hir::HirAnalysis> {
         let error_start = self.errors.len();
         self.analyze_module(module)?;
-        Ok(crate::hir::lower_module(
+        let mut analysis = crate::hir::lower_module(
             module,
             &self.scope_manager,
             &self.hir_procedure_scopes,
             &self.errors[error_start..],
             &self.warnings,
-        ))
+        );
+        if self.option_strict {
+            crate::hir::check_option_strict(&mut analysis);
+        }
+        Ok(analysis)
     }
 
     /// Analyze a VB6 class and construct typed HIR when validation succeeds.
@@ -846,7 +856,6 @@ impl SemanticAnalyzer {
 
     /// Dispatch a single module/class-level statement
     fn process_statement(&mut self, statement: &CstNode, line: usize) -> Result<()> {
-        self.report_unimplemented_mx_features(statement);
         match statement.kind() {
             SyntaxKind::DimStatement => self.process_dim_statement(statement, line)?,
             SyntaxKind::TypeStatement => self.process_type_statement(statement, line)?,
@@ -863,39 +872,19 @@ impl SemanticAnalyzer {
         Ok(())
     }
 
-    fn report_unimplemented_mx_features(&mut self, statement: &CstNode) {
-        let tokens: Vec<&CstNode> = statement
-            .descendants()
-            .filter(|node| node.is_token() && !Self::is_trivia(node.kind()))
-            .collect();
-        for pair in tokens.windows(2) {
-            let first = pair[0].text();
-            let second = pair[1].text();
-            let feature = if first.eq_ignore_ascii_case("Option")
-                && second.eq_ignore_ascii_case("Strict")
-            {
-                Some((
-                    "MX S08 Option Strict",
-                    "the semantic analyzer does not type-check expression operands, assignments, or calls end-to-end",
-                    pair[0].start_offset(),
-                ))
-            } else if first.eq_ignore_ascii_case("As") && second.eq_ignore_ascii_case("Auto") {
-                Some((
-                    "MX S04 As Auto",
-                    "the semantic analyzer does not infer declaration types from initializer or assignment expressions",
-                    pair[1].start_offset(),
-                ))
-            } else {
-                None
-            };
-            if let Some((feature, reason, offset)) = feature {
-                self.errors.push(SemanticError::UnsupportedFeature {
-                    feature: feature.to_string(),
-                    reason: reason.to_string(),
-                    location: self.location_at(offset),
-                });
-            }
-        }
+    fn module_option_enabled(root: &CstNode, name: &str) -> bool {
+        root.descendants()
+            .filter(|node| node.kind() == SyntaxKind::OptionStatement)
+            .any(|statement| {
+                let tokens: Vec<_> = statement
+                    .descendants()
+                    .filter(|node| node.is_token() && !Self::is_trivia(node.kind()))
+                    .collect();
+                tokens.len() == 3
+                    && tokens[0].text().eq_ignore_ascii_case("Option")
+                    && tokens[1].text().eq_ignore_ascii_case(name)
+                    && tokens[2].text().eq_ignore_ascii_case("On")
+            })
     }
 
     /// Process a `Dim` or `Const` statement (both use the `DimStatement` syntax kind)
@@ -922,6 +911,25 @@ impl SemanticAnalyzer {
                 attributes.insert("value".to_string(), value);
             }
             let mut type_info = item.type_info;
+            if item.is_auto {
+                if !self.mx_enabled {
+                    self.errors.push(SemanticError::UnsupportedFeature {
+                        feature: "MX S04 As Auto".to_string(),
+                        reason: "As Auto requires Option VB6RExtensions On".to_string(),
+                        location: self.location_at(item.offset),
+                    });
+                    type_info = TypeInfo::unknown();
+                } else if let Some(inferred) = item.initializer_type.clone() {
+                    type_info = inferred;
+                } else {
+                    self.errors.push(SemanticError::UnsupportedFeature {
+                        feature: "MX S04 As Auto".to_string(),
+                        reason: "initializer is missing or is not a supported literal; inference supports numeric, string, Boolean, and Nothing literals only".to_string(),
+                        location: self.location_at(item.offset),
+                    });
+                    type_info = TypeInfo::unknown();
+                }
+            }
             if item.is_array {
                 type_info.is_array = true;
             }
@@ -1662,21 +1670,34 @@ impl SemanticAnalyzer {
             type_info = Some(Self::parse_type_from_tokens(tokens, index));
         }
 
-        // Const value
+        let is_auto = type_info
+            .as_ref()
+            .is_some_and(|ty| ty.kind == VBType::Unknown)
+            && tokens
+                .get(index.saturating_sub(1))
+                .is_some_and(|token| token.text().eq_ignore_ascii_case("Auto"));
+        // Const value or MX initializer
         let mut value = None;
+        let mut initializer_type = None;
         if *index < tokens.len() && tokens[*index].kind() == SyntaxKind::EqualityOperator {
             *index += 1;
+            let start = *index;
             let mut parts = Vec::new();
             while *index < tokens.len() && tokens[*index].kind() != SyntaxKind::Comma {
                 parts.push(tokens[*index].text().to_string());
                 *index += 1;
             }
             value = Some(parts.concat());
+            if is_auto {
+                initializer_type = infer_auto_initializer(&tokens[start..*index]);
+            }
         }
 
         Some(DeclaredItem {
             name,
             type_info: type_info.unwrap_or_else(TypeInfo::variant),
+            is_auto,
+            initializer_type,
             is_array,
             with_events,
             value,
@@ -1690,11 +1711,30 @@ impl SemanticAnalyzer {
     /// Returns each parameter symbol together with the byte range of its name
     /// token so the caller can record precise definition references.
     fn parse_parameter_list(
-        &self,
+        &mut self,
         list: &CstNode,
         procedure_scope: usize,
     ) -> Result<Vec<(Symbol, u32, u32)>> {
         let tokens: Vec<&CstNode> = Self::significant_children(list).collect();
+        if let Some(auto) = tokens
+            .windows(2)
+            .find(|pair| {
+                pair[0].text().eq_ignore_ascii_case("As")
+                    && pair[1].text().eq_ignore_ascii_case("Auto")
+            })
+            .map(|pair| pair[1])
+        {
+            self.errors.push(SemanticError::UnsupportedFeature {
+                feature: "MX S04 As Auto".to_string(),
+                reason: if self.mx_enabled {
+                    "procedure parameter inference is unsupported because parameters have no initializer"
+                } else {
+                    "As Auto requires Option VB6RExtensions On"
+                }
+                .to_string(),
+                location: self.location_at(auto.start_offset()),
+            });
+        }
         let mut symbols = Vec::new();
 
         let mut i = 0;
@@ -1926,9 +1966,39 @@ impl SemanticAnalyzer {
 }
 
 /// A single declarator parsed from a `Dim`/`Const` statement (or a `Type` member)
+fn infer_auto_initializer(tokens: &[&CstNode]) -> Option<TypeInfo> {
+    let significant: Vec<_> = tokens
+        .iter()
+        .filter(|token| !matches!(token.kind(), SyntaxKind::Whitespace | SyntaxKind::Newline))
+        .copied()
+        .collect();
+    if significant.len() != 1 {
+        return None;
+    }
+    let token = significant[0];
+    let text = token.text().trim();
+    if token.kind() == SyntaxKind::StringLiteralExpression {
+        Some(TypeInfo::string())
+    } else if text.eq_ignore_ascii_case("True") || text.eq_ignore_ascii_case("False") {
+        Some(TypeInfo::boolean())
+    } else if text.eq_ignore_ascii_case("Nothing") {
+        Some(TypeInfo::new(VBType::Nothing))
+    } else if text.parse::<i16>().is_ok() {
+        Some(TypeInfo::integer())
+    } else if text.parse::<i32>().is_ok() {
+        Some(TypeInfo::long())
+    } else if text.parse::<f64>().is_ok() {
+        Some(TypeInfo::new(VBType::Double))
+    } else {
+        None
+    }
+}
+
 struct DeclaredItem {
     name: String,
     type_info: TypeInfo,
+    is_auto: bool,
+    initializer_type: Option<TypeInfo>,
     is_array: bool,
     with_events: bool,
     value: Option<String>,

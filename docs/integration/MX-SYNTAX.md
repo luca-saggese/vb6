@@ -1,12 +1,12 @@
 # VB6R — MX-SYNTAX
 
-**Stato:** `DESIGN-APPROVED / IMPLEMENTATION-DEFERRED`
+**Stato:** `DESIGN-APPROVED / IMPLEMENTATION IN PROGRESS`
 **Tipo:** specifica di progettazione per estensioni future del linguaggio
 **Versione documento:** 0.1 — 13 ottobre 2026
 **Ambito:** sintassi VB6R, frontend, analisi semantica, IR, runtime e integrazione VM
-**Fuori ambito:** implementazione immediata, nuovi opcode Microsoft, ridefinizione delle milestone M1–M6
+**Fuori ambito:** nuovi opcode Microsoft e ridefinizione delle milestone M1–M6
 
-> **Decisione owner:** conservare questa specifica per un successivo ciclo MX. Le sedici estensioni elencate sono approvate come *direzioni progettuali*, non come grammatica o semantica già congelata. Gli esempi contrassegnati **PROPOSTA** non attestano funzionalità implementate.
+> **Decisione owner:** le sedici estensioni sono approvate come *direzioni progettuali*, non come grammatica o semantica già congelata. Alcune slice sono in implementazione; gli stati sono riportati nelle matrici. Gli esempi contrassegnati **PROPOSTA** non attestano funzionalità implementate.
 
 ## 1. Obiettivo e vincoli non negoziabili
 
@@ -23,22 +23,22 @@ VB6R deve preservare il comportamento dei programmi Visual Basic 6 originali e o
 
 | ID | Funzionalità | Priorità proposta | Responsabilità prevalente | Stato |
 |---|---|---|---|---|
-| MX-S01 | `Return <expr>` nelle `Function` | P0 | Parser → semantica → IR | Da progettare/implementare |
-| MX-S02 | `Continue For`, `Continue Do` | P0 | Control-flow lowering | Da progettare/implementare |
-| MX-S03 | `AndAlso`, `OrElse` | P0 | Short-circuit e controllo di flusso | Da progettare/implementare |
-| MX-S04 | Inferenza esplicita: `As Auto` | P1 | Type inference locale | Da progettare/implementare |
-| MX-S05 | Interpolazione stringhe `$"..."` | P1 | Parser e conversione stringhe VB6 | Da progettare/implementare |
-| MX-S06 | `Try` / `Catch` / `Finally` | P1 | Error handling sincrono e cleanup | Da progettare/implementare |
-| MX-S07 | `Using` | P1 | Protocollo di rilascio risorse | Da progettare/implementare |
-| MX-S08 | `Option Strict On` | P1 | Diagnostica e conversioni implicite | Da progettare/implementare |
-| MX-S09 | Accesso opzionale `?.` | P1 | Nullability e accesso a membri | Da progettare/implementare |
-| MX-S10 | Coalescenza `??` | P1 | Nullability e lazy fallback | Da progettare/implementare |
-| MX-S11 | Spread `...` | P1/P2 | Parametri, array e call lowering | Da progettare/implementare |
-| MX-S12 | Letterali di array/collezione `[ ... ]` | P1/P2 | Sintassi, tipi, allocazione runtime | Da progettare/implementare |
-| MX-S13 | Destructuring | P2 | Binding e assegnazione multipla | Da progettare/implementare |
-| MX-S14 | Lambda e closure | P1, dopo i tipi procedura | Tipi funzione, capture, lifetime | Da progettare/implementare |
-| MX-S15 | Generics `List(Of Long)` | P2 | Type system e specializzazione | Da progettare/implementare |
-| MX-S16 | Pattern matching `Match` | P2 | Pattern typing e control-flow lowering | Da progettare/implementare |
+| MX-S01 | `Return <expr>` nelle `Function` | P0 | Parser → semantica → IR | PARTIAL |
+| MX-S02 | `Continue For`, `Continue Do` | P0 | Control-flow lowering | PARTIAL |
+| MX-S03 | `AndAlso`, `OrElse` | P0 | Short-circuit e controllo di flusso | PARTIAL |
+| MX-S04 | Inferenza esplicita: `As Auto` | P1 | Type inference locale | PARTIAL |
+| MX-S05 | Interpolazione stringhe `$"..."` | P1 | Parser e conversione stringhe VB6 | PARTIAL |
+| MX-S06 | `Try` / `Catch` / `Finally` | P1 | Error handling sincrono e cleanup | BLOCKED |
+| MX-S07 | `Using` | P1 | Protocollo di rilascio risorse | BLOCKED |
+| MX-S08 | `Option Strict On` | P1 | Diagnostica e conversioni implicite | PARTIAL |
+| MX-S09 | Accesso opzionale `?.` | P1 | Nullability e accesso a membri | PARTIAL |
+| MX-S10 | Coalescenza `??` | P1 | Nullability e lazy fallback | PARTIAL |
+| MX-S11 | Spread `...` | P1/P2 | Parametri, array e call lowering | PARTIAL |
+| MX-S12 | Letterali di array/collezione `[ ... ]` | P1/P2 | Sintassi, tipi, allocazione runtime | PARTIAL |
+| MX-S13 | Destructuring | P2 | Binding e assegnazione multipla | BLOCKED |
+| MX-S14 | Lambda e closure | P1, dopo i tipi procedura | Tipi funzione, capture, lifetime | BLOCKED |
+| MX-S15 | Generics `List(Of Long)` | P2 | Type system e specializzazione | BLOCKED |
+| MX-S16 | Pattern matching `Match` | P2 | Pattern typing e control-flow lowering | BLOCKED |
 
 Le priorità indicano *ordine di ingegneria suggerito*, non milestone già pianificate né obbligo di rilasciare tutte le funzioni contemporaneamente.
 
@@ -465,6 +465,12 @@ della presenza di nodi grammaticali.
   loop non corrispondenti e arrivano al loop più vicino del tipo corretto;
   anche `Continue For/Do` inline in `If ... Then` propagano il flusso al loop;
   gli operatori short-circuit non valutano l'operando destro quando evitabile.
+- Semantica: con opt-in, `As Auto` inferisce literal numerici, stringa,
+  Boolean e `Nothing` in dichiarazioni; `Option Strict On` verifica
+  assegnazioni fra tipi noti e uguali nei corpi delle procedure. Tipi diversi
+  sono rifiutati; parameter inference e sorgenti `Variant`, ignote, chiamate o
+  membri non verificabili restano diagnostici espliciti. Le regole complete di
+  inferenza e conversione non sono implementate.
 - Test sintetici interpreter superati: `mx_return_and_short_circuit_are_opt_in_and_executable`,
   `mx_continue_targets_the_nearest_matching_loop`,
   `mx_continue_without_an_enclosing_matching_loop_is_an_error`,
@@ -512,20 +518,31 @@ della presenza di nodi grammaticali.
   Sei test dedicati coprono ordine, una valutazione, input non-array, opt-in,
   rifiuto di `ByRef` anche quando l'espansione occupa più parametri e rifiuto
   fuori dalle chiamate.
-- `As Auto` e `Option Strict` sono diagnosi semantiche esplicite di supporto
-  non disponibile, non feature implementate: l'inferenza e il type checking
-  d'espressione sono bloccati dall'architettura dell'analizzatore.
+- `As Auto` inferisce i tipi statici di literal numerici, stringa, Boolean e
+  `Nothing` solo quando sono usati come inizializzatori di dichiarazioni `Dim`
+  o `Const` con opt-in. Inizializzatori assenti/non supportati, parametri e uso senza
+  opt-in producono diagnostiche esplicite. L'inferenza da espressioni generali
+  resta `BLOCKED`.
+- `Option Strict On` controlla parzialmente le assegnazioni a variabili
+  tipizzate note nei corpi delle procedure: accetta tipi uguali e rifiuta tipi
+  differenti; sorgenti `Variant`/ignote e chiamate/membri non verificabili
+  generano diagnostiche. Espressioni, chiamate, assegnazioni a livello modulo
+  e conversioni implicite non sono ancora coperti end-to-end.
 - S06/S07 sono `BLOCKED`: mancano produzioni compound, unwinding del cleanup
   nel flusso di controllo, e protocollo runtime `Dispose`.
 - `VBTask.Then/Catch` resta `BLOCKED`: `vb6runtime` non espone un tipo task o
   callback MX e l'interprete chiama procedure sincrone direttamente; manca
   un'API di registrazione/invocazione callback su nuovi frame.
 - Validazione corrente: `cargo test --offline -p vb6parse --lib` (181 test),
-  `cargo test --offline -p vb6semantic --test mx_s04_s08` (2 test) e la
-  suite completa `cargo test --offline -p vb6interpret` (232 test) passano.
+  `cargo test --offline -p vb6semantic --test mx_s04_s08` (6 test), la suite
+  completa `cargo test --offline -p vb6semantic` e la suite completa
+  `cargo test --offline -p vb6interpret` passano.
+  `cargo clippy --offline --lib -p vb6semantic --no-deps` passa senza
+  `-D warnings`.
   `mx_array_literal` (4 test) e `mx_inline_continue` (3 test) sono inclusi
-  nella suite completa.
-  Clippy mirato con `-D warnings` e `rustfmt --check` sui file Rust modificati
-  passano.
+  nella suite completa. `rustfmt --check` e `git diff --check` passano.
+  Clippy con `-D warnings` resta bloccato da 21 lint già presenti in altri
+  punti di `vb6semantic/src/analyzer.rs` e `hir.rs`; i nuovi punti della slice
+  non aggiungono diagnostici nel controllo senza `-D warnings`.
   La suite d'integrazione completa `vb6parse` resta bloccata da fixture
   `test-data/` assenti.

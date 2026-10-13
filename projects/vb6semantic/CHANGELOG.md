@@ -12,12 +12,16 @@
   declaration checks.
 - Document the current VB6 HIR lowering boundary and reserved, unimplemented
   MX HIR forms.
-- Recognize module-level `As Auto` declarations as unknown-typed rather than
-  treating `Auto` as a user-defined type, and report that inference is blocked
-  because expression-based inference is not implemented.
-- Report `Option Strict` as unsupported: the analyzer does not yet perform
-  end-to-end expression, assignment, or call type checking.
+- Add opt-in `As Auto` inference for supported numeric, string, Boolean, and
+  `Nothing` literal initializers. Missing/unsupported initializers, parameters,
+  and use without the MX option produce explicit diagnostics; legacy untyped
+  declarations remain `Variant`.
+- Add partial `Option Strict On` HIR checks for known typed assignments.
+  Differing types are rejected; `Variant`, unknown, call/member expressions,
+  and other unsupported cases are diagnosed rather than silently accepted.
+- Preserve distinct HIR types for `Nothing`, `Null`, and `Empty`.
 
 ### Validation
 
+`cargo test --offline -p vb6semantic --test mx_s04_s08` passed (6 tests);
 `cargo test --offline -p vb6semantic` passed (unit, integration, and doc tests).

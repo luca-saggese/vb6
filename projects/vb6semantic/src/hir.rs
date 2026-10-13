@@ -342,6 +342,97 @@ pub struct HirAnalysis {
     pub warnings: Vec<String>,
 }
 
+pub(crate) fn check_option_strict(analysis: &mut HirAnalysis) {
+    let Some(program) = analysis.program.as_mut() else {
+        return;
+    };
+    for procedure in &program.procedures {
+        check_strict_statements(&procedure.body, &mut analysis.errors);
+    }
+    if !analysis.errors.is_empty() {
+        analysis.program = None;
+    }
+}
+
+fn check_strict_statements(statements: &[Statement], errors: &mut Vec<SemanticError>) {
+    for statement in statements {
+        match &statement.kind {
+            StatementKind::Assignment { target, value } => {
+                let Some(target_type) = target.info.ty.as_ref() else {
+                    errors.push(SemanticError::UnsupportedFeature {
+                        feature: "MX S08 Option Strict".to_string(),
+                        reason: "assignment target has no statically known type".to_string(),
+                        location: target.info.location.clone(),
+                    });
+                    continue;
+                };
+                let source = unconverted_expression(value);
+                if matches!(
+                    source.kind,
+                    ExpressionKind::Call { .. } | ExpressionKind::Member { .. }
+                ) {
+                    errors.push(SemanticError::UnsupportedFeature {
+                        feature: "MX S08 Option Strict".to_string(),
+                        reason: "procedure calls and late-bound member expressions are not checked by this slice".to_string(),
+                        location: source.info.location.clone(),
+                    });
+                    continue;
+                }
+                let Some(source_type) = source.info.ty.as_ref() else {
+                    errors.push(SemanticError::UnsupportedFeature {
+                        feature: "MX S08 Option Strict".to_string(),
+                        reason: "assignment source has no statically known type".to_string(),
+                        location: source.info.location.clone(),
+                    });
+                    continue;
+                };
+                if let Err(error) = crate::TypeChecker::new().check_strict_assignment(
+                    target_type,
+                    source_type,
+                    &target.info.location,
+                ) {
+                    errors.push(error);
+                }
+            }
+            StatementKind::If {
+                then_body,
+                else_body,
+                ..
+            } => {
+                check_strict_statements(then_body, errors);
+                check_strict_statements(else_body, errors);
+            }
+            StatementKind::Loop { body, .. } | StatementKind::For { body, .. } => {
+                check_strict_statements(body, errors)
+            }
+            StatementKind::Select { cases, .. } => {
+                for case in cases {
+                    check_strict_statements(&case.body, errors);
+                }
+            }
+            StatementKind::Try {
+                body,
+                catches,
+                finally_body,
+            } => {
+                check_strict_statements(body, errors);
+                for catch in catches {
+                    check_strict_statements(catch, errors);
+                }
+                check_strict_statements(finally_body, errors);
+            }
+            _ => {}
+        }
+    }
+}
+
+fn unconverted_expression(expression: &Expression) -> &Expression {
+    match &expression.kind {
+        ExpressionKind::Conversion { expression, .. } => unconverted_expression(expression),
+        _ => expression,
+    }
+}
+
 /// Construct the structural HIR for a module after its declarations are bound.
 pub(crate) fn lower_module(
     module: &ModuleFile,
@@ -905,7 +996,11 @@ fn lower_expression(
         SyntaxKind::LiteralExpression => {
             let text = node.text().trim();
             let ty = if text.eq_ignore_ascii_case("Nothing") {
-                TypeInfo::new(vb6core::types::VBType::Object)
+                TypeInfo::new(vb6core::types::VBType::Nothing)
+            } else if text.eq_ignore_ascii_case("Null") {
+                TypeInfo::new(vb6core::types::VBType::Null)
+            } else if text.eq_ignore_ascii_case("Empty") {
+                TypeInfo::new(vb6core::types::VBType::Empty)
             } else {
                 TypeInfo::variant()
             };

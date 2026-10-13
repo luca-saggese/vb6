@@ -37,6 +37,36 @@ impl TypeChecker {
         }
     }
 
+    /// Check the intentionally bounded MX `Option Strict` assignment slice.
+    /// Only identical, known, non-Variant types are accepted.
+    pub fn check_strict_assignment(
+        &self,
+        target_type: &TypeInfo,
+        source_type: &TypeInfo,
+        location: &SourceLocation,
+    ) -> Result<()> {
+        if matches!(target_type.kind, VBType::Unknown | VBType::Variant)
+            || matches!(source_type.kind, VBType::Unknown | VBType::Variant)
+        {
+            return Err(SemanticError::UnsupportedFeature {
+                feature: "MX S08 Option Strict".to_string(),
+                reason:
+                    "assignment uses an unknown or Variant type that this checker cannot decide"
+                        .to_string(),
+                location: location.clone(),
+            });
+        }
+        if target_type == source_type {
+            Ok(())
+        } else {
+            Err(SemanticError::TypeMismatch {
+                expected: target_type.to_string(),
+                found: source_type.to_string(),
+                location: location.clone(),
+            })
+        }
+    }
+
     /// Check if two types are compatible for an operation
     pub fn check_operation(
         &self,
