@@ -497,9 +497,9 @@ impl Interpreter {
         let argument_list = node
             .significant_children()
             .find(|child| child.kind() == SyntaxKind::ArgumentList);
-        let args = match argument_list {
-            Some(list) => self.eval_args(list)?,
-            None => Vec::new(),
+        let (args, spread_values) = match argument_list {
+            Some(list) => self.eval_args_with_spread(list)?,
+            None => (Vec::new(), Vec::new()),
         };
 
         // Array reference: the name resolves to an array variable. An empty
@@ -521,6 +521,22 @@ impl Interpreter {
         // User-defined function.
         let key = normalize(&name);
         if self.procedures.contains_key(&key) {
+            if let Some(procedure) = self.procedures.get(&key)
+                && procedure
+                    .params
+                    .iter()
+                    .zip(spread_values.iter())
+                    .any(|(param, spread)| *spread && param.by_ref)
+            {
+                return Err(self.error_at(
+                    node,
+                    VBError::with_description(
+                        err_number::INVALID_PROCEDURE_CALL,
+                        "Spread arguments cannot bind to ByRef parameters",
+                    ),
+                    None,
+                ));
+            }
             return self.call_function(&name, args);
         }
 
@@ -545,16 +561,66 @@ impl Interpreter {
 
     /// Evaluate an `ArgumentList` into positional argument values.
     pub(crate) fn eval_args(&mut self, node: &CstNode) -> RunResult<Vec<VBVariant>> {
+        self.eval_args_with_spread(node).map(|(values, _)| values)
+    }
+
+    pub(crate) fn eval_spread_expression(&mut self, expr: &CstNode) -> RunResult<Vec<VBVariant>> {
+        let source = expr
+            .significant_children()
+            .find(|child| child.kind() != SyntaxKind::PeriodOperator)
+            .ok_or_else(|| self.error_at(expr, VBError::type_mismatch(), None))?;
+        let value = self.eval_expr(source)?;
+        let VBVariant::Array(array) = value else {
+            return Err(self.error_at(
+                expr,
+                VBError::with_description(
+                    err_number::TYPE_MISMATCH,
+                    "Spread source must be an initialized rank-1 array",
+                ),
+                None,
+            ));
+        };
+        if array.rank() != 1 || !array.is_initialized() {
+            return Err(self.error_at(
+                expr,
+                VBError::with_description(
+                    err_number::TYPE_MISMATCH,
+                    "Spread source must be an initialized rank-1 array",
+                ),
+                None,
+            ));
+        }
+        let dimension = &array.dimensions()[0];
+        let mut values = Vec::with_capacity(array.len());
+        for index in dimension.lower..=dimension.upper {
+            values.push(array.get(&[index])?.clone());
+        }
+        Ok(values)
+    }
+
+    pub(crate) fn eval_args_with_spread(
+        &mut self,
+        node: &CstNode,
+    ) -> RunResult<(Vec<VBVariant>, Vec<bool>)> {
         let mut values = Vec::new();
+        let mut spread_values = Vec::new();
         for argument in node.children_by_kind(SyntaxKind::Argument) {
             if let Some(expr) = argument
                 .significant_children()
                 .find(|child| !matches!(child.kind(), SyntaxKind::Comma))
             {
-                values.push(self.eval_expr(expr)?);
+                if expr.kind() == SyntaxKind::SpreadExpression {
+                    for value in self.eval_spread_expression(expr)? {
+                        values.push(value);
+                        spread_values.push(true);
+                    }
+                } else {
+                    values.push(self.eval_expr(expr)?);
+                    spread_values.push(false);
+                }
             }
         }
-        Ok(values)
+        Ok((values, spread_values))
     }
 
     /// Look up a variable in the current frame, then in globals.

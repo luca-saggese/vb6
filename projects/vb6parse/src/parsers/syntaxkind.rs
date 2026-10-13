@@ -677,6 +677,8 @@ pub enum SyntaxKind {
     NullCoalescingOperator,
     /// MX non-empty array literal expression.
     ArrayLiteralExpression,
+    /// MX spread source in a call argument.
+    SpreadExpression,
 }
 
 impl Display for SyntaxKind {
@@ -890,7 +892,7 @@ impl From<Token> for SyntaxKind {
 
 impl SyntaxKind {
     pub(crate) fn from_raw(raw: rowan::SyntaxKind) -> Self {
-        assert!(raw.0 <= SyntaxKind::ArrayLiteralExpression as u16);
+        assert!(raw.0 <= SyntaxKind::SpreadExpression as u16);
         unsafe { std::mem::transmute::<u16, SyntaxKind>(raw.0) }
     }
 

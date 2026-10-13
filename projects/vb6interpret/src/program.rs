@@ -185,6 +185,7 @@ fn parameter_list(node: &CstNode) -> Option<&CstNode> {
 fn parse_params(parameter_list: &CstNode) -> Vec<Param> {
     let mut params = Vec::new();
     let mut current: Option<Param> = None;
+    let mut next_by_ref = true;
 
     for child in parameter_list.significant_children() {
         match child.kind() {
@@ -195,15 +196,17 @@ fn parse_params(parameter_list: &CstNode) -> Vec<Param> {
                 }
                 current = Some(Param {
                     name: child.text().trim().to_string(),
-                    by_ref: true,
+                    by_ref: next_by_ref,
                     ty: VBType::Variant,
                     optional: false,
                 });
+                next_by_ref = true;
             }
             SyntaxKind::ByValKeyword | SyntaxKind::ByRefKeyword => {
-                if let Some(param) = current.as_mut() {
-                    param.by_ref = child.kind() == SyntaxKind::ByRefKeyword;
+                if let Some(prev) = current.take() {
+                    params.push(prev);
                 }
+                next_by_ref = child.kind() == SyntaxKind::ByRefKeyword;
             }
             SyntaxKind::OptionalKeyword => {
                 if let Some(param) = current.as_mut() {

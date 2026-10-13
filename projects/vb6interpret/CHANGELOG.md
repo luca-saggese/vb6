@@ -21,6 +21,10 @@
   because the interpreter has no expected-type context.
 - Routed single-line `If ... Then Continue For/Do` through the existing
   MX-gated continue parser and interpreter flow propagation.
+- Added partial `...array` call-argument expansion for rank-1 arrays, preserving
+  index order and one-time source evaluation. Expanded values bind by value;
+  `ByRef` targets and non-call Print statements reject spread. `ParamArray` and
+  static arity/type analysis remain unsupported.
 - Continue signals are scoped to the active procedure and matching loop;
   invalid targets produce a runtime error instead of escaping into callers.
 - These features remain partial: MX static validation, function return-type
@@ -32,7 +36,8 @@
 `cargo check --offline --lib -p vb6parse -p vb6interpret` passed.
 `cargo test --offline -p vb6interpret --test run mx_` passed (7 tests);
 `mx_array_literal` passed (4 tests), `mx_inline_continue` passed (3 tests),
-and the full `vb6interpret` suite passed (222 tests); `vb6parse --lib`
+`mx_spread` passed (6 tests), and the full `vb6interpret` suite passed
+(228 tests); `vb6parse --lib`
 passed (181 tests), and `cargo test --offline -p vb6semantic --test
 mx_s04_s08` passed (2 tests).
 `cargo clippy --offline --lib -p vb6parse -p vb6semantic -p vb6interpret -- -D warnings`

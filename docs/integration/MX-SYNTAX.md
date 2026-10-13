@@ -398,6 +398,12 @@ necessari come `IMPLEMENTED`.
   widening degli elementi. L'array vuoto richiede un contesto tipizzato.
   `[Identificatore con spazi]` conserva la semantica VB6 di identificatore
   delimitato; la forma literal è riconosciuta solo con opt-in MX.
+- La prima tranche di spread è limitata agli argomenti di chiamata: l'array
+  sorgente è valutato una volta e gli elementi vengono espansi nell'ordine
+  degli indici, per copia. Gli argomenti espansi non creano alias `ByRef`;
+  una firma che richiede `ByRef` deve rifiutare quei valori. `ParamArray` e
+  spread dentro literal/collection restano fuori dalla tranche finché il
+  binder non ne definisce conteggio, conversioni e aliasing.
 - Destructuring è limitato ai valori prodotto esplicitamente supportati
   (tuple MX e UDT dichiarati); la sorgente viene valutata una volta, tutti i
   valori sono validati prima di qualsiasi assegnazione e l'assegnazione è
@@ -438,7 +444,7 @@ della presenza di nodi grammaticali.
 | Option Strict | PARTIAL | PARTIAL | BLOCKED | BLOCKED | PARTIAL |
 | `?.` | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED |
 | `??` | PARTIAL | BLOCKED | PARTIAL | PARTIAL | PARTIAL |
-| Spread `...` | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED |
+| Spread `...` | PARTIAL | BLOCKED | PARTIAL | PARTIAL | PARTIAL |
 | Array literals | PARTIAL | BLOCKED | PARTIAL | PARTIAL | PARTIAL |
 | Destructuring | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED |
 | Lambda/closure | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED |
@@ -482,20 +488,36 @@ della presenza di nodi grammaticali.
   lato destro solo quando il sinistro è `Nothing`; `Null` ed `Empty` vengono
   restituiti invariati. Il test sintetico verifica fallback, sentinels e
   comportamento senza opt-in; manca il type checking semantico end-to-end.
+- `?.` resta `BLOCKED`: `eval_expr` non risolve ancora l'accesso ai membri
+  degli oggetti e restituisce esplicitamente "Object member access is not
+  supported yet". Propagare `Nothing` senza la risoluzione del membro
+  nasconderebbe errori di membro inesistente; servono prima un modello oggetti
+  e accessi verificati.
 - Array literals: i literal non vuoti `[ ... ]` sono accettati solo con
   l'opt-in, producono array rank-1 con lower bound zero e inferenza limitata
   al tipo comune supportato; gli identificatori delimitati tra parentesi
   quadre restano tali con opt-in attivo o spento. `[]` genera un errore VB
   esplicito: manca il passaggio di contesto tipizzato all'interprete per
   inferirne il tipo elemento. Non è quindi una feature completa.
+- Spread: `...array` è disponibile solo negli argomenti di chiamata MX;
+  espande array rank-1 per indice, una sola valutazione dell'espressione
+  sorgente e valori copiati. È escluso il binding `ByRef` per mantenere
+  esplicita la semantica di aliasing; `Print` non accetta spread. `ParamArray`,
+  spread in literal e verifica statica di arità/tipi non sono supportati.
+  Sei test dedicati coprono ordine, una valutazione, input non-array, opt-in,
+  rifiuto di `ByRef` anche quando l'espansione occupa più parametri e rifiuto
+  fuori dalle chiamate.
 - `As Auto` e `Option Strict` sono diagnosi semantiche esplicite di supporto
   non disponibile, non feature implementate: l'inferenza e il type checking
   d'espressione sono bloccati dall'architettura dell'analizzatore.
 - S06/S07 sono `BLOCKED`: mancano produzioni compound, unwinding del cleanup
   nel flusso di controllo, e protocollo runtime `Dispose`.
+- `VBTask.Then/Catch` resta `BLOCKED`: `vb6runtime` non espone un tipo task o
+  callback MX e l'interprete chiama procedure sincrone direttamente; manca
+  un'API di registrazione/invocazione callback su nuovi frame.
 - Validazione corrente: `cargo test --offline -p vb6parse --lib` (181 test),
   `cargo test --offline -p vb6semantic --test mx_s04_s08` (2 test) e la
-  suite completa `cargo test --offline -p vb6interpret` (222 test) passano.
+  suite completa `cargo test --offline -p vb6interpret` (228 test) passano.
   `mx_array_literal` (4 test) e `mx_inline_continue` (3 test) sono inclusi
   nella suite completa.
   Clippy mirato con `-D warnings` e `rustfmt --check` sui file Rust modificati

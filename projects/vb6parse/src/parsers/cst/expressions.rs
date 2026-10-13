@@ -89,6 +89,7 @@ use rowan::Checkpoint;
 /// Tracks the state of expression parsing to eliminate recursion.
 #[derive(Debug, Clone, Copy)]
 enum ExprParseFrame {
+    EndSpread,
     /// Parse a prefix expression and start the infix loop
     ParsePrefix {
         min_bp: BindingPower,
@@ -276,6 +277,7 @@ impl Parser<'_> {
         frame_stack: &mut Vec<ExprParseFrame>,
     ) {
         match frame {
+            ExprParseFrame::EndSpread => self.builder.finish_node(),
             ExprParseFrame::ParsePrefix {
                 min_bp,
                 lhs_checkpoint,
@@ -587,6 +589,30 @@ impl Parser<'_> {
         });
 
         let arg_checkpoint = self.builder.checkpoint();
+        if self.mx_extensions_enabled
+            && self.current_token() == Some(&Token::PeriodOperator)
+            && self
+                .tokens
+                .get(self.pos + 1)
+                .is_some_and(|(_, token)| *token == Token::PeriodOperator)
+            && self
+                .tokens
+                .get(self.pos + 2)
+                .is_some_and(|(_, token)| *token == Token::PeriodOperator)
+        {
+            self.builder
+                .start_node(SyntaxKind::SpreadExpression.to_raw());
+            self.consume_token();
+            self.consume_token();
+            self.consume_token();
+            self.consume_whitespace();
+            frame_stack.push(ExprParseFrame::EndSpread);
+            frame_stack.push(ExprParseFrame::ParsePrefix {
+                min_bp: BindingPower::NONE,
+                lhs_checkpoint: arg_checkpoint,
+            });
+            return;
+        }
         frame_stack.push(ExprParseFrame::ParsePrefix {
             min_bp: BindingPower::NONE,
             lhs_checkpoint: arg_checkpoint,

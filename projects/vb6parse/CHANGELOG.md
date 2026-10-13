@@ -22,6 +22,8 @@ and this project (tries!) to adheres to [Semantic Versioning](https://semver.org
 - Opt-in parsing for non-empty MX array literals while retaining bracketed
   identifiers; empty literal typing remains unsupported.
 - Fixed opt-in dispatch for `Continue For/Do` inside single-line `If` bodies.
+- Added opt-in spread parsing for call arguments; Print statements do not accept
+  spread syntax.
 
 ### Changed
 - **Massive: Removed flat expression handling** — All statement parsers in vb6parse now use full expression trees instead of flat token consumption. This affects every statement parser in the codebase.
