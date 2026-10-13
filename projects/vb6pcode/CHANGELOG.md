@@ -7,10 +7,12 @@
   dependency-free decoder.
 - Import the catalog, M1 matrix, evidence-qualified forms, dispatch map,
   Rust table generator, documentation, and required provenance/license files.
-- Keep Microsoft dispatch opcodes separate from the future VB6R/MX namespace.
-- Add a version-1 canonical VB6R instruction namespace and validated
-  in-memory module/procedure representation. Canonical contracts include typed
-  stack effects, variable slots, source maps, calls, branches, and counted-loop
-  operations; these are not entries in the Microsoft catalog.
-- Keep Microsoft opcodes catalogued/decodable distinct from semantically
-  verified or emitted opcodes. The HIR compiler emits no Microsoft opcode.
+- Add a versioned, platform-independent P-Code program container whose
+  instruction identities are Microsoft dispatch-table slots and whose
+  operands are normalized Rust values.
+- Remove the separate classic VB6R opcode set introduced by `7711b569`.
+  Reserve a separately versioned MX extension namespace; no MX opcode is
+  emitted in the current compiler tranche.
+- Document the verified `Add(Long, Long)` identity/stack subset and its
+  evidence boundaries in
+  [`docs/integration/HIR-PCODE.md`](../../docs/integration/HIR-PCODE.md).

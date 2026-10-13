@@ -1,5 +1,5 @@
-//! Compiler-facing lowering from the existing typed VB6 HIR to canonical,
-//! versioned VB6R P-Code. This crate does not execute generated programs.
+//! Compiler-facing lowering from typed VB6 HIR to Microsoft P-Code identities
+//! in a versioned modern container. This crate does not execute programs.
 
 #![warn(missing_docs)]
 

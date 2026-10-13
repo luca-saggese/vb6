@@ -5,16 +5,18 @@ Standalone Microsoft VB6 P-Code catalog and decoder. The crate embeds the six
 metadata, semantic categories, and the M1 slot classifications. It does not
 depend on VB6R's VM, compiler, runtime, or the upstream repository.
 
-The catalog represents Microsoft's P-Code namespace only. Future VB6R/MX
-opcodes belong to a separate namespace and must not be added to these six
-Microsoft dispatch tables; see the repository's
+The catalog represents Microsoft's P-Code namespace. Future MX instructions
+may use only the explicitly versioned extension namespace in the modern
+program container; they must not alter these six Microsoft dispatch tables.
+See the repository's
 [MX syntax specification](../../docs/integration/MX-SYNTAX.md).
 
-The separate [`canonical` module](src/canonical.rs) defines the versioned
-VB6R in-memory instruction format and validator. Its instructions are not
-Microsoft opcodes and are not executable until a VM implements their contracts.
-The current HIR compiler emits no Microsoft catalog opcode; see the
-[HIR/P-Code coverage matrix](../../docs/integration/HIR-PCODE.md).
+The [`program` module](src/program.rs) defines a versioned, platform-independent
+container with Microsoft table/slot identities, normalized operands, procedure
+metadata, source maps, and stack validation. The current compiler emits only
+`ILdRf`, `AddI4`, `FStR4`, and `ExitProc` for the supported `Add(Long, Long)`
+HIR shape; see the
+[opcode evidence and limits](../../docs/integration/HIR-PCODE.md).
 
 See [catalog provenance and generation](docs/CATALOG.md) and
 [the changelog](CHANGELOG.md).
