@@ -1348,6 +1348,20 @@ impl Parser<'_> {
     /// - Right-associative: `right_bp = left_bp` (exponentiation)
     fn get_infix_binding_power(&self) -> Option<(BindingPower, BindingPower)> {
         let token = self.current_token()?;
+        if self.mx_extensions_enabled
+            && let Some((text, Token::Identifier)) = self.tokens.get(self.pos)
+        {
+            let binding_power = if text.eq_ignore_ascii_case("AndAlso") {
+                Some(BindingPower::AND)
+            } else if text.eq_ignore_ascii_case("OrElse") {
+                Some(BindingPower::OR)
+            } else {
+                None
+            };
+            if let Some(bp) = binding_power {
+                return Some((bp, BindingPower(bp.0 + 1)));
+            }
+        }
 
         let (left_bp, right_bp) = match token {
             // Exponentiation (right-associative)

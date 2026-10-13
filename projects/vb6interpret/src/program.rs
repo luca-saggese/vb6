@@ -80,6 +80,7 @@ pub(crate) fn is_statement_kind(kind: SyntaxKind) -> bool {
             | SyntaxKind::GotoStatement
             | SyntaxKind::OnErrorStatement
             | SyntaxKind::ReturnStatement
+            | SyntaxKind::ContinueStatement
             | SyntaxKind::ResumeStatement
             | SyntaxKind::EraseStatement
             | SyntaxKind::TypeStatement

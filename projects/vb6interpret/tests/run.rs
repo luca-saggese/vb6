@@ -51,6 +51,81 @@ fn integer_types() {
 }
 
 #[test]
+fn mx_return_and_short_circuit_are_opt_in_and_executable() {
+    let source = "Attribute VB_Name = \"M\"\n\
+        Option VB6RExtensions On\n\
+        Dim calls As Long\n\
+        Function Touch() As Boolean\n\
+            calls = calls + 1\n\
+            Return True\n\
+        End Function\n\
+        Function Add() As Long\n\
+            Return 2 + 3\n\
+        End Function\n\
+        Sub Main()\n\
+            Debug.Print False AndAlso Touch()\n\
+            Debug.Print True OrElse Touch()\n\
+            Debug.Print calls\n\
+            Debug.Print Add()\n\
+        End Sub\n";
+    assert_eq!(
+        run_source(source).expect("MX execution failed"),
+        vec!["False", "True", "0", "5"]
+    );
+}
+
+#[test]
+fn mx_continue_targets_the_nearest_matching_loop() {
+    let source = "Attribute VB_Name = \"M\"\n\
+        Option VB6RExtensions On\n\
+        Sub Main()\n\
+            Dim i As Long\n\
+            For i = 1 To 4\n\
+                If i = 2 Then\n\
+                    Continue For\n\
+                End If\n\
+                Debug.Print i\n\
+            Next i\n\
+            i = 0\n\
+            Do\n\
+                i = i + 1\n\
+                If i < 3 Then\n\
+                    Continue Do\n\
+                End If\n\
+                Debug.Print i\n\
+            Loop While i < 4\n\
+        End Sub\n";
+    assert_eq!(
+        run_source(source).expect("MX execution failed"),
+        vec!["1", "3", "4", "3", "4"]
+    );
+}
+
+#[test]
+fn mx_continue_without_an_enclosing_matching_loop_is_an_error() {
+    let source = "Attribute VB_Name = \"M\"\n\
+        Option VB6RExtensions On\n\
+        Sub Main()\n\
+            Continue For\n\
+        End Sub\n";
+    assert!(run_source(source).is_err());
+}
+
+#[test]
+fn mx_keywords_remain_identifiers_without_the_module_opt_in() {
+    let source = "Attribute VB_Name = \"M\"\n\
+        Sub Main()\n\
+            Dim AndAlso As Long\n\
+            AndAlso = 7\n\
+            Debug.Print AndAlso\n\
+        End Sub\n";
+    assert_eq!(
+        run_source(source).expect("legacy identifier execution failed"),
+        vec!["7"]
+    );
+}
+
+#[test]
 fn string_functions() {
     let out = run("    Dim s As String\n\
          s = \"  Hello World  \"\n\

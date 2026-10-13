@@ -669,6 +669,8 @@ pub enum SyntaxKind {
     ErrorMissingTokens,
     /// Parent node wrapping recovered tokens during error recovery
     ErrorRecovery,
+    /// MX `Continue For` / `Continue Do` control-flow statement.
+    ContinueStatement,
 }
 
 impl Display for SyntaxKind {
@@ -880,7 +882,7 @@ impl From<Token> for SyntaxKind {
 
 impl SyntaxKind {
     pub(crate) fn from_raw(raw: rowan::SyntaxKind) -> Self {
-        assert!(raw.0 <= SyntaxKind::ErrorRecovery as u16);
+        assert!(raw.0 <= SyntaxKind::ContinueStatement as u16);
         unsafe { std::mem::transmute::<u16, SyntaxKind>(raw.0) }
     }
 

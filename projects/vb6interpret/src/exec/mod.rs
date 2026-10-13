@@ -116,6 +116,8 @@ impl Interpreter {
                 Ok(Flow::Next)
             }
             SyntaxKind::ExitStatement => self.exec_exit(node),
+            SyntaxKind::ContinueStatement => self.exec_continue(node),
+            SyntaxKind::ReturnStatement => self.exec_return(node),
             SyntaxKind::EndStatement => {
                 self.terminated = true;
                 Ok(Flow::Terminate)
@@ -196,12 +198,50 @@ impl Interpreter {
             SyntaxKind::OnErrorStatement
             | SyntaxKind::GoSubStatement
             | SyntaxKind::GotoStatement
-            | SyntaxKind::ReturnStatement
             | SyntaxKind::ResumeStatement
             | SyntaxKind::OnGoToStatement
             | SyntaxKind::OnGoSubStatement => Err(self.unsupported(node, "control-flow statement")),
             other => Err(self.unsupported(node, &format!("statement {other:?}"))),
         }
+    }
+
+    fn exec_continue(&mut self, node: &CstNode) -> RunResult<Flow> {
+        let target = if node
+            .significant_children()
+            .any(|child| child.kind() == SyntaxKind::ForKeyword)
+        {
+            crate::interpreter::LoopKind::For
+        } else {
+            crate::interpreter::LoopKind::Do
+        };
+        let depth = self.frames.len();
+        if !self
+            .active_loops
+            .iter()
+            .any(|(kind, loop_depth)| *kind == target && *loop_depth == depth)
+        {
+            return Err(self.error_here(VBError::invalid_procedure_call(), None));
+        }
+        Ok(match target {
+            crate::interpreter::LoopKind::For => Flow::ContinueFor,
+            crate::interpreter::LoopKind::Do => Flow::ContinueDo,
+        })
+    }
+
+    fn exec_return(&mut self, node: &CstNode) -> RunResult<Flow> {
+        let value = node
+            .significant_children()
+            .find(|child| child.kind() != SyntaxKind::ReturnKeyword)
+            .map(|expression| self.eval_expr(expression))
+            .transpose()?;
+        let Some(value) = value else {
+            return Err(self.unsupported(node, "legacy GoSub/Return"));
+        };
+        let Some(frame) = self.frames.last_mut().filter(|frame| frame.is_function) else {
+            return Err(self.error_here(VBError::invalid_procedure_call(), None));
+        };
+        frame.return_value = Some(value);
+        Ok(Flow::Return)
     }
 
     /// Unsupported-construct error.

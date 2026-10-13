@@ -346,3 +346,123 @@ La milestone MX non potrà essere dichiarata conclusa sulla base del solo parsin
 **Collocazione consigliata:** `docs/MX-SYNTAX.md` (oppure nella sezione `docs` già dedicata a MX).
 **Azione attuale:** conservare il documento per progettazione futura, **senza cambiare codice, gate M5/M6, catalogo opcode o milestone in corso**.
 **Azione alla riapertura:** ratificare le questioni aperte, definire le acceptance fixture e autorizzare esplicitamente l'implementazione per fasi.
+
+## 11. Decisioni di porting adottate nel fork
+
+Queste decisioni risolvono le questioni aperte necessarie per implementare e
+testare le estensioni nel fork. Non modificano il comportamento legacy e non
+implicano supporto finché la matrice seguente non mostra tutti i livelli
+necessari come `IMPLEMENTED`.
+
+- `Option VB6RExtensions On` è un'opzione a livello di modulo, ammessa nel
+  prologo assieme agli altri `Option`, prima della prima dichiarazione o
+  istruzione eseguibile. È disattivata per default. Le parole nuove che
+  possono essere identificatori VB6 restano token contestuali; il parser non
+  le promuove a keyword in un modulo legacy.
+- `Return <expr>` è valido solo in una `Function`; `Return` senza espressione
+  mantiene sempre il significato legacy GoSub. In una `Sub`, l'espressione di
+  Return è un errore semantico. Valore e conversione di ritorno sono valutati
+  una volta sola.
+- `Continue For` e `Continue Do` si applicano al ciclo attivo più vicino del
+  tipo indicato. Attraversano cicli annidati di altro tipo e non possono
+  essere intercettati da un loop non corrispondente.
+- `AndAlso` ha precedenza e associatività di `And`; `OrElse` quelle di `Or`.
+  Entrambi valutano da sinistra a destra e cortocircuitano. Gli operandi
+  valutati usano la conversione Boolean VB6 esistente: `Null` conserva
+  l'errore 94 e `Empty` conserva la semantica di `CBool`; `And`/`Or` non
+  cambiano.
+- `?.` propaga soltanto `Nothing` e produce `Nothing` senza valutare il membro
+  destro. `Null` non viene trattato come `Nothing` e mantiene errore 94;
+  `Empty` e gli altri valori non-object mantengono l'errore di tipo/runtime.
+  `??` valuta il lato destro soltanto per `Nothing`; `Null`, `Empty`, zero e
+  stringa vuota non attivano il fallback.
+- Interpolazione: `{{` e `}}` producono parentesi graffe letterali;
+  `{expr}` interpola una sola espressione senza specificatore di formato.
+  Le espressioni sono valutate una volta, da sinistra a destra, e convertite
+  con la conversione stringa runtime. Le conversioni che falliscono
+  propagano l'errore VB6 originale.
+- `Option Strict` è locale al modulo e non ha effetto senza opt-in MX.
+  Quando attivo vieta narrowing impliciti e late binding; consente assegnazioni
+  che il type checker dichiara widening-safe. Conversioni esplicite e
+  assegnazioni a `Variant` restano permesse.
+- `Try` cattura gli errori sincroni `VBError` generati nel suo corpo;
+  `Catch` opzionale è singolo e `Finally` opzionale è singolo. `Finally` viene
+  eseguito per ogni uscita. Se il corpo ha già un errore, questo resta
+  primario anche se `Finally` ne genera un altro; se non c'era errore,
+  l'errore di `Finally` viene propagato. `On Error` legacy mantiene la propria
+  semantica e non viene tradotto in `Try`.
+- `Using` richiede una risorsa che implementi il protocollo runtime MX
+  `Dispose`; non invoca per convenzione `Close` su oggetti arbitrari. Il
+  rilascio usa le stesse regole di errore primario di `Finally`.
+- Un array literal ha rank 1, lower bound 0 e tipo inferito dal tipo comune
+  widening degli elementi. L'array vuoto richiede un contesto tipizzato.
+  `[Identificatore con spazi]` conserva la semantica VB6 di identificatore
+  delimitato; la forma literal è riconosciuta solo con opt-in MX.
+- Destructuring è limitato ai valori prodotto esplicitamente supportati
+  (tuple MX e UDT dichiarati); la sorgente viene valutata una volta, tutti i
+  valori sono validati prima di qualsiasi assegnazione e l'assegnazione è
+  atomica.
+- Le lambda catturano le variabili locali per riferimento; le catture
+  sopravvivono al frame chiamante tramite celle runtime stabili. L'invocazione
+  di lambda/callback crea un nuovo frame ordinario.
+- I generics sono verificati staticamente e specializzati per argomenti di
+  tipo; non introducono type erasure runtime né cambiano identità degli oggetti
+  COM. Un tipo generico non risolto è errore, non `Variant` implicito.
+- `Match` è una statement con clausole ordinate `Case` e `Case Else`, senza
+  fall-through. È ammesso non esaustivo; nessuna clausola corrispondente
+  lascia lo statement senza effetto. Binding di pattern sono locali alla
+  clausola e non possono essere scritti.
+- `VBTask.Then/Catch` registra callback una tantum in ordine. Quando il task
+  viene completato o fallisce, la callback è invocata sul thread del
+  completamento in un nuovo frame; non viene sospeso né ripreso alcun frame.
+  Gli errori della callback propagano al chiamante che completa il task.
+  Cancellazione e scheduler GUI restano fuori dall'API iniziale.
+
+## 12. Matrice di completamento end-to-end
+
+`IMPLEMENTED` richiede codice funzionante e test in tutti i livelli applicabili.
+`PARTIAL` indica che il livello esiste ma non soddisfa l'intero contratto;
+`BLOCKED` indica che manca una struttura necessaria o una verifica accettabile.
+La matrice va aggiornata insieme ai changelog dei crate, non sulla sola base
+della presenza di nodi grammaticali.
+
+| Estensione | Parser | Semantica | Runtime | Interprete | Test end-to-end |
+|---|---|---|---|---|---|
+| Return expression | PARTIAL | BLOCKED | PARTIAL | PARTIAL | PARTIAL |
+| Continue For/Do | PARTIAL | BLOCKED | PARTIAL | PARTIAL | PARTIAL |
+| AndAlso/OrElse | PARTIAL | BLOCKED | PARTIAL | PARTIAL | PARTIAL |
+| As Auto | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED |
+| Interpolazione `$"..."` | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED |
+| Try/Catch/Finally | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED |
+| Using | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED |
+| Option Strict | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED |
+| `?.` | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED |
+| `??` | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED |
+| Spread `...` | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED |
+| Array literals | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED |
+| Destructuring | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED |
+| Lambda/closure | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED |
+| Generics | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED |
+| Pattern matching | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED |
+| `VBTask.Then/Catch` | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED |
+
+### Evidenza corrente
+
+- Parser: l'opt-in di modulo riconosce `Option VB6RExtensions On`; sono state
+  aggiunte produzioni per `Return <expr>`, `Continue For/Do` in statement list
+  e `AndAlso`/`OrElse` contestuali. La forma `Continue` in `If` inline non è
+  ancora coperta con evidenza end-to-end.
+- Interprete: `Return <expr>` termina una Function; i continue attraversano
+  loop non corrispondenti e arrivano al loop più vicino del tipo corretto;
+  gli operatori short-circuit non valutano l'operando destro quando evitabile.
+- Test sintetici end-to-end superati: `mx_return_and_short_circuit_are_opt_in_and_executable`,
+  `mx_continue_targets_the_nearest_matching_loop` e
+  `mx_continue_without_an_enclosing_matching_loop_is_an_error` e
+  `mx_keywords_remain_identifiers_without_the_module_opt_in` in
+  `projects/vb6interpret/tests/run.rs`.
+- Semantica statica e analisi del tipo di ritorno non sono ancora collegate
+  all'interprete. Nessuna compatibilità con Microsoft viene inferita da questi
+  test sintetici.
+- `cargo test --offline -p vb6interpret --test run mx_` passa (3 test);
+  `cargo check --offline --lib -p vb6parse -p vb6interpret` passa. Il test
+  completo di `vb6parse` è bloccato da fixture `test-data/` assenti.

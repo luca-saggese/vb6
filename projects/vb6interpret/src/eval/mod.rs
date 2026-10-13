@@ -159,6 +159,21 @@ impl Interpreter {
         right: &CstNode,
     ) -> RunResult<VBVariant> {
         let lhs = self.eval_expr(left)?;
+        let operator_text = op.text();
+        if operator_text.eq_ignore_ascii_case("AndAlso") {
+            let left_value = lhs.as_bool()?;
+            if !left_value {
+                return Ok(VBVariant::Boolean(false));
+            }
+            return Ok(VBVariant::Boolean(self.eval_expr(right)?.as_bool()?));
+        }
+        if operator_text.eq_ignore_ascii_case("OrElse") {
+            let left_value = lhs.as_bool()?;
+            if left_value {
+                return Ok(VBVariant::Boolean(true));
+            }
+            return Ok(VBVariant::Boolean(self.eval_expr(right)?.as_bool()?));
+        }
         let rhs = self.eval_expr(right)?;
 
         match op.kind() {
