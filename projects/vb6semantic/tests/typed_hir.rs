@@ -179,6 +179,7 @@ fn lowers_while_loop_with_condition_and_body() {
         post_test,
         until,
         body,
+        ..
     } = &program.procedures[0].body[1].kind
     else {
         panic!("expected loop")

@@ -444,7 +444,7 @@ della presenza di nodi grammaticali.
 | Estensione | Parser | Semantica | Runtime | Interprete | Test end-to-end |
 |---|---|---|---|---|---|
 | Return expression | PARTIAL | PARTIAL | PARTIAL | PARTIAL | PARTIAL |
-| Continue For/Do | PARTIAL | BLOCKED | PARTIAL | PARTIAL | PARTIAL |
+| Continue For/Do | PARTIAL | PARTIAL | PARTIAL | PARTIAL | PARTIAL |
 | AndAlso/OrElse | PARTIAL | PARTIAL | PARTIAL | PARTIAL | PARTIAL |
 | As Auto | PARTIAL | PARTIAL | BLOCKED | BLOCKED | PARTIAL |
 | Interpolazione `$"..."` | PARTIAL | BLOCKED | PARTIAL | PARTIAL | PARTIAL |
@@ -493,6 +493,11 @@ della presenza di nodi grammaticali.
   `Nothing` come literal expression (anziché identifier) anche nel codice VB6
   legacy. Il lowerer HIR non è un esecutore: la valutazione runtime del nodo
   coalescing resta non collegata.
+- HIR: `Continue For/Do` è rappresentato con il tipo di loop richiesto e la
+  validazione verifica l'esistenza di un loop attivo corrispondente, anche
+  attraverso `If`, `Select` e loop annidati. La distinzione `Do`/`While` è
+  conservata: `Continue Do` non può puntare a un `While`, ma può attraversarlo
+  per raggiungere un `Do` esterno. L'analisi HIR non è un esecutore.
 - Test sintetici interpreter superati: `mx_return_and_short_circuit_are_opt_in_and_executable`,
   `mx_continue_targets_the_nearest_matching_loop`,
   `mx_continue_without_an_enclosing_matching_loop_is_an_error`,

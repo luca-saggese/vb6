@@ -57,9 +57,9 @@ pub use analyzer::SemanticAnalyzer;
 pub use error::{Result, SemanticError, SourceLocation};
 /// Result and node types for typed HIR construction.
 pub use hir::{
-    CaseClause, ConversionKind, Declaration, DeclarationKind, Expression, ExpressionKind,
-    HirAnalysis, NodeInfo, Operator, Parameter, PassingMode, Procedure, ProcedureSignature,
-    SourceSpan, Statement, StatementKind, SymbolId, TypedProgram, UnitKind,
+    CaseClause, ContinueTarget, ConversionKind, Declaration, DeclarationKind, Expression,
+    ExpressionKind, HirAnalysis, LoopKind, NodeInfo, Operator, Parameter, PassingMode, Procedure,
+    ProcedureSignature, SourceSpan, Statement, StatementKind, SymbolId, TypedProgram, UnitKind,
 };
 /// Resolved references registry and resolvers.
 pub use references::{

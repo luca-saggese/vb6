@@ -231,6 +231,24 @@ pub enum ConversionKind {
     Implicit,
 }
 
+/// Loop kind targeted by MX `Continue`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContinueTarget {
+    /// Counted `For ... Next` loop.
+    For,
+    /// `Do ... Loop`.
+    Do,
+}
+
+/// Structured loop construct retained in typed HIR.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoopKind {
+    /// `Do ... Loop`.
+    Do,
+    /// `While ... Wend`.
+    While,
+}
+
 /// Typed expression.
 #[derive(Debug, Clone)]
 pub struct Expression {
@@ -254,6 +272,8 @@ pub enum StatementKind {
     Expression(Expression),
     /// MX expression return from a Function.
     Return(Expression),
+    /// MX continue to the nearest enclosing loop of the requested kind.
+    Continue(ContinueTarget),
     /// Structured conditional.
     If {
         /// Branch condition.
@@ -265,6 +285,8 @@ pub enum StatementKind {
     },
     /// Structured loop.
     Loop {
+        /// Source loop construct.
+        loop_kind: LoopKind,
         /// Loop condition, absent for unconditional loops.
         condition: Option<Expression>,
         /// True when the source tests at the end of each iteration.
@@ -631,6 +653,7 @@ fn lower_unit(
                     None
                 };
                 check_return_statements(&mut body, return_type.as_ref(), &mut diagnostics);
+                check_continue_statements(&body, &mut Vec::new(), &mut diagnostics);
                 procedures.push(Procedure {
                     name,
                     signature: ProcedureSignature {
@@ -873,6 +896,11 @@ fn lower_statement(
             let info = make_info(node, scope_id, None);
             Ok(Statement {
                 kind: StatementKind::Loop {
+                    loop_kind: if node.kind() == SyntaxKind::DoStatement {
+                        LoopKind::Do
+                    } else {
+                        LoopKind::While
+                    },
                     condition,
                     post_test,
                     until,
@@ -960,7 +988,90 @@ fn lower_statement(
                 info,
             })
         }
+        SyntaxKind::ContinueStatement => {
+            let target = node
+                .children()
+                .iter()
+                .filter(|child| child.is_token())
+                .find_map(|token| {
+                    if token.text().eq_ignore_ascii_case("For") {
+                        Some(ContinueTarget::For)
+                    } else if token.text().eq_ignore_ascii_case("Do") {
+                        Some(ContinueTarget::Do)
+                    } else {
+                        None
+                    }
+                })
+                .ok_or_else(|| unsupported(node, make_info))?;
+            let info = make_info(node, scope_id, None);
+            Ok(Statement {
+                kind: StatementKind::Continue(target),
+                info,
+            })
+        }
         _ => Err(unsupported(node, make_info)),
+    }
+}
+
+fn check_continue_statements(
+    statements: &[Statement],
+    active_loops: &mut Vec<ContinueTarget>,
+    errors: &mut Vec<SemanticError>,
+) {
+    for statement in statements {
+        match &statement.kind {
+            StatementKind::Continue(target) if !active_loops.contains(target) => {
+                let target_name = match target {
+                    ContinueTarget::For => "For",
+                    ContinueTarget::Do => "Do",
+                };
+                errors.push(SemanticError::InvalidOperation {
+                    message: format!("Continue {target_name} has no enclosing matching loop"),
+                    location: statement.info.location.clone(),
+                });
+            }
+            StatementKind::If {
+                then_body,
+                else_body,
+                ..
+            } => {
+                check_continue_statements(then_body, active_loops, errors);
+                check_continue_statements(else_body, active_loops, errors);
+            }
+            StatementKind::For { body, .. } => {
+                active_loops.push(ContinueTarget::For);
+                check_continue_statements(body, active_loops, errors);
+                active_loops.pop();
+            }
+            StatementKind::Loop {
+                loop_kind, body, ..
+            } => {
+                if *loop_kind == LoopKind::Do {
+                    active_loops.push(ContinueTarget::Do);
+                    check_continue_statements(body, active_loops, errors);
+                    active_loops.pop();
+                } else {
+                    check_continue_statements(body, active_loops, errors);
+                }
+            }
+            StatementKind::Select { cases, .. } => {
+                for case in cases {
+                    check_continue_statements(&case.body, active_loops, errors);
+                }
+            }
+            StatementKind::Try {
+                body,
+                catches,
+                finally_body,
+            } => {
+                check_continue_statements(body, active_loops, errors);
+                for catch in catches {
+                    check_continue_statements(catch, active_loops, errors);
+                }
+                check_continue_statements(finally_body, active_loops, errors);
+            }
+            _ => {}
+        }
     }
 }
 

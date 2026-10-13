@@ -33,6 +33,10 @@
   preserve `Null` and `Empty` as distinct result types, retain dynamic `Variant`
   results, and select a widening-compatible object type or `Variant` fallback.
   The HIR node is not yet connected to an HIR executor.
+- Lower MX `Continue For/Do` to typed HIR and reject a continue statement when
+  no matching active loop exists. Preserve `Do` versus `While` loop identity so
+  `Continue Do` can skip a nested `While` for an outer `Do` without targeting a
+  `While` itself.
 
 ### Validation
 
@@ -45,3 +49,5 @@ the full semantic suite passed again with coalescing coverage. Parser expression
 tests passed (41 tests), and `cargo test --offline -p vb6interpret` passed.
 `cargo clippy --offline --lib -p vb6semantic --no-deps` completed successfully;
 it reports 21 existing lint warnings in the semantic crate.
+`cargo test --offline -p vb6semantic --test mx_s02_continue` passed (5 tests);
+the complete semantic and interpreter suites passed after the loop HIR change.
