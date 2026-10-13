@@ -437,7 +437,7 @@ della presenza di nodi grammaticali.
 |---|---|---|---|---|---|
 | Return expression | PARTIAL | PARTIAL | PARTIAL | PARTIAL | PARTIAL |
 | Continue For/Do | PARTIAL | BLOCKED | PARTIAL | PARTIAL | PARTIAL |
-| AndAlso/OrElse | PARTIAL | BLOCKED | PARTIAL | PARTIAL | PARTIAL |
+| AndAlso/OrElse | PARTIAL | PARTIAL | PARTIAL | PARTIAL | PARTIAL |
 | As Auto | PARTIAL | PARTIAL | BLOCKED | BLOCKED | PARTIAL |
 | Interpolazione `$"..."` | PARTIAL | BLOCKED | PARTIAL | PARTIAL | PARTIAL |
 | Try/Catch/Finally | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED |
@@ -470,7 +470,10 @@ della presenza di nodi grammaticali.
   assegnazioni fra tipi noti e uguali nei corpi delle procedure. Tipi diversi
   sono rifiutati; parameter inference e sorgenti `Variant`, ignote, chiamate o
   membri non verificabili restano diagnostici espliciti. Le regole complete di
-  inferenza e conversione non sono implementate.
+  inferenza e conversione non sono implementate. `AndAlso`/`OrElse` hanno nodi
+  HIR distinti, risultato Boolean e conversioni Boolean esplicite; `Null` ed
+  `Empty` mantengono il proprio tipo sorgente, mentre gli oggetti generano un
+  errore statico.
 - HIR: `Return <expr>` è tipizzato contro il tipo dichiarato della Function;
   conversioni assegnabili sono esplicitate e tipi incompatibili o Return in una
   Sub producono diagnostiche. Questa analisi non è collegata a un esecutore HIR.
@@ -539,6 +542,8 @@ della presenza di nodi grammaticali.
 - Validazione corrente: `cargo test --offline -p vb6parse --lib` (181 test),
   `cargo test --offline -p vb6semantic --test mx_s04_s08` (6 test),
   `cargo test --offline -p vb6semantic --test mx_s01_return` (4 test), la suite
+  `cargo test --offline -p vb6semantic --test mx_s03_short_circuit` (3 test),
+  la suite
   completa `cargo test --offline -p vb6semantic` e la suite completa
   `cargo test --offline -p vb6interpret` passano.
   `cargo clippy --offline --lib -p vb6semantic --no-deps` passa senza

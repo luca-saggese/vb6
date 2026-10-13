@@ -171,6 +171,16 @@ pub enum ExpressionKind {
         /// Right operand.
         right: Box<Expression>,
     },
+    /// MX Boolean short-circuit expression; a future HIR executor must evaluate
+    /// the right operand only when required by the operator.
+    ShortCircuit {
+        /// `AndAlso` or `OrElse`.
+        operator: Operator,
+        /// Left operand.
+        left: Box<Expression>,
+        /// Lazily evaluated right operand.
+        right: Box<Expression>,
+    },
     /// Invocation.
     Call {
         /// Invoked procedure or expression.
@@ -1101,8 +1111,8 @@ fn lower_expression(
             (ExpressionKind::Parenthesized(Box::new(value)), ty)
         }
         SyntaxKind::BinaryExpression if children.len() >= 2 => {
-            let left = lower_expression(&children[0], scope_id, scopes, make_info)?;
-            let right = lower_expression(&children[1], scope_id, scopes, make_info)?;
+            let mut left = lower_expression(&children[0], scope_id, scopes, make_info)?;
+            let mut right = lower_expression(&children[1], scope_id, scopes, make_info)?;
             let operator = node
                 .children()
                 .into_iter()
@@ -1112,44 +1122,57 @@ fn lower_expression(
                 })
                 .map(|child| child.text().to_string())
                 .unwrap_or_default();
-            let result = match (&left.info.ty, &right.info.ty) {
-                (Some(l), Some(r)) => crate::TypeChecker::new().check_operation(
-                    l,
-                    r,
-                    &operator,
-                    &make_info(node, scope_id, None).location,
-                )?,
-                _ => TypeInfo::variant(),
+            let is_short_circuit =
+                matches!(operator.to_ascii_lowercase().as_str(), "andalso" | "orelse");
+            let result = if is_short_circuit {
+                left = coerce_short_circuit_operand(left)?;
+                right = coerce_short_circuit_operand(right)?;
+                TypeInfo::boolean()
+            } else {
+                let result = match (&left.info.ty, &right.info.ty) {
+                    (Some(l), Some(r)) => crate::TypeChecker::new().check_operation(
+                        l,
+                        r,
+                        &operator,
+                        &make_info(node, scope_id, None).location,
+                    )?,
+                    _ => TypeInfo::variant(),
+                };
+                if matches!(
+                    operator.to_ascii_lowercase().as_str(),
+                    "+" | "-" | "*" | "/" | "\\" | "^" | "mod"
+                ) {
+                    if left.info.ty.as_ref().is_some_and(|ty| ty != &result) {
+                        left = implicit_conversion(left, result.clone());
+                    }
+                    if right.info.ty.as_ref().is_some_and(|ty| ty != &result) {
+                        right = implicit_conversion(right, result.clone());
+                    }
+                } else if operator == "&" {
+                    let target = TypeInfo::string();
+                    if left.info.ty.as_ref() != Some(&target) {
+                        left = implicit_conversion(left, target.clone());
+                    }
+                    if right.info.ty.as_ref() != Some(&target) {
+                        right = implicit_conversion(right, target);
+                    }
+                }
+                result
             };
-            let mut left = left;
-            let mut right = right;
-            if matches!(
-                operator.to_ascii_lowercase().as_str(),
-                "+" | "-" | "*" | "/" | "\\" | "^" | "mod"
-            ) {
-                if left.info.ty.as_ref().is_some_and(|ty| ty != &result) {
-                    left = implicit_conversion(left, result.clone());
+            let kind = if is_short_circuit {
+                ExpressionKind::ShortCircuit {
+                    operator: Operator::Source(operator),
+                    left: Box::new(left),
+                    right: Box::new(right),
                 }
-                if right.info.ty.as_ref().is_some_and(|ty| ty != &result) {
-                    right = implicit_conversion(right, result.clone());
-                }
-            } else if operator == "&" {
-                let target = TypeInfo::string();
-                if left.info.ty.as_ref() != Some(&target) {
-                    left = implicit_conversion(left, target.clone());
-                }
-                if right.info.ty.as_ref() != Some(&target) {
-                    right = implicit_conversion(right, target);
-                }
-            }
-            (
+            } else {
                 ExpressionKind::Binary {
                     operator: Operator::Source(operator),
                     left: Box::new(left),
                     right: Box::new(right),
-                },
-                Some(result),
-            )
+                }
+            };
+            (kind, Some(result))
         }
         SyntaxKind::CallExpression if !children.is_empty() => {
             let Some(callee_node) = node
@@ -1308,6 +1331,55 @@ fn is_expression_kind(kind: SyntaxKind) -> bool {
             | SyntaxKind::StringLiteralExpression
             | SyntaxKind::BooleanLiteralExpression
     )
+}
+
+fn coerce_short_circuit_operand(expression: Expression) -> Result<Expression, SemanticError> {
+    let Some(source_type) = expression.info.ty.as_ref() else {
+        return Err(SemanticError::UnsupportedFeature {
+            feature: "MX S03 AndAlso/OrElse".to_string(),
+            reason: "operand has no statically known type".to_string(),
+            location: expression.info.location.clone(),
+        });
+    };
+    let kind = &source_type.kind;
+    if *kind == vb6core::types::VBType::Unknown {
+        return Err(SemanticError::UnsupportedFeature {
+            feature: "MX S03 AndAlso/OrElse".to_string(),
+            reason: "operand type is unknown".to_string(),
+            location: expression.info.location.clone(),
+        });
+    }
+    if !matches!(
+        kind,
+        vb6core::types::VBType::Boolean
+            | vb6core::types::VBType::Byte
+            | vb6core::types::VBType::Integer
+            | vb6core::types::VBType::Long
+            | vb6core::types::VBType::Single
+            | vb6core::types::VBType::Double
+            | vb6core::types::VBType::Currency
+            | vb6core::types::VBType::Decimal
+            | vb6core::types::VBType::String
+            | vb6core::types::VBType::Date
+            | vb6core::types::VBType::Variant
+            | vb6core::types::VBType::Null
+            | vb6core::types::VBType::Empty
+            | vb6core::types::VBType::Error
+            | vb6core::types::VBType::Enum(_)
+    ) {
+        return Err(SemanticError::InvalidOperation {
+            message: format!(
+                "MX short-circuit Boolean conversion is not supported for {source_type}"
+            ),
+            location: expression.info.location.clone(),
+        });
+    }
+    let target_type = TypeInfo::boolean();
+    if source_type == &target_type {
+        Ok(expression)
+    } else {
+        Ok(implicit_conversion(expression, target_type))
+    }
 }
 
 fn implicit_conversion(expression: Expression, target_type: TypeInfo) -> Expression {

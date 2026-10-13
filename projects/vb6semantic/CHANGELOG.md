@@ -10,6 +10,10 @@
   Function result type using VB6 assignment rules, and represent permitted
   widening and runtime `Variant` conversions explicitly. Reject expression
   returns in Subs.
+- Lower MX `AndAlso`/`OrElse` into a distinct lazy HIR expression with Boolean
+  result type and explicit VB6 Boolean conversions. Preserve `Null`/`Empty`
+  operand types for runtime conversion and reject statically unsupported object
+  operands.
 - Lower structured `If`, `While`, `Do`, and counted `For` control flow, and bind
   typed calls with arity and argument compatibility checks.
 - Resolve VB6 symbol names case-insensitively during scope lookup and duplicate
@@ -29,4 +33,5 @@
 
 `cargo test --offline -p vb6semantic --test mx_s04_s08` passed (6 tests);
 `cargo test --offline -p vb6semantic --test mx_s01_return` passed (4 tests);
+`cargo test --offline -p vb6semantic --test mx_s03_short_circuit` passed (3 tests);
 `cargo test --offline -p vb6semantic` passed (unit, integration, and doc tests).
