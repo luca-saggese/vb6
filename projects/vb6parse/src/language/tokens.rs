@@ -315,6 +315,8 @@ pub enum Token {
     InterpolatedStringLiteral,
     /// MX null-coalescing operator `??`.
     NullCoalescingOperator,
+    /// MX optional member access operator `?.`.
+    OptionalMemberAccessOperator,
     /// Represents the `If` keyword.
     ///
     /// Used to conditionally execute a block of code depending on the value
@@ -1204,6 +1206,7 @@ impl Token {
                 | Token::ExponentiationOperator
                 | Token::Ampersand
                 | Token::NullCoalescingOperator
+                | Token::OptionalMemberAccessOperator
         )
     }
 

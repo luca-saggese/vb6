@@ -1133,6 +1133,7 @@ fn take_symbol<'a>(input: &mut SourceStream<'a>) -> Option<TextTokenTuple<'a>> {
             "<=" => Some(Token::LessThanOrEqualOperator),
             ">=" => Some(Token::GreaterThanOrEqualOperator),
             "??" => Some(Token::NullCoalescingOperator),
+            "?." => Some(Token::OptionalMemberAccessOperator),
             _ => None,
         };
 

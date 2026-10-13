@@ -24,6 +24,7 @@ and this project (tries!) to adheres to [Semantic Versioning](https://semver.org
 - Fixed opt-in dispatch for `Continue For/Do` inside single-line `If` bodies.
 - Added opt-in spread parsing for call arguments; Print statements do not accept
   spread syntax.
+- Added opt-in lexing and parsing for safe member access `?.`.
 
 ### Changed
 - **Massive: Removed flat expression handling** — All statement parsers in vb6parse now use full expression trees instead of flat token consumption. This affects every statement parser in the codebase.

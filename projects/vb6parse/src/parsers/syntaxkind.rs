@@ -675,6 +675,8 @@ pub enum SyntaxKind {
     InterpolatedStringLiteral,
     /// MX null-coalescing operator token.
     NullCoalescingOperator,
+    /// MX optional member access operator token.
+    OptionalMemberAccessOperator,
     /// MX non-empty array literal expression.
     ArrayLiteralExpression,
     /// MX spread source in a call argument.
@@ -741,6 +743,7 @@ impl From<Token> for SyntaxKind {
             Token::StringLiteral => SyntaxKind::StringLiteral,
             Token::InterpolatedStringLiteral => SyntaxKind::InterpolatedStringLiteral,
             Token::NullCoalescingOperator => SyntaxKind::NullCoalescingOperator,
+            Token::OptionalMemberAccessOperator => SyntaxKind::OptionalMemberAccessOperator,
             Token::IntegerLiteral => SyntaxKind::IntegerLiteral,
             Token::LongLiteral => SyntaxKind::LongLiteral,
             Token::SingleLiteral => SyntaxKind::SingleLiteral,

@@ -734,7 +734,12 @@ impl Parser<'_> {
 
         let found_postfix = matches!(
             self.current_token(),
-            Some(Token::PeriodOperator | Token::LeftParenthesis | Token::ExclamationMark)
+            Some(
+                Token::PeriodOperator
+                    | Token::OptionalMemberAccessOperator
+                    | Token::LeftParenthesis
+                    | Token::ExclamationMark
+            )
         );
 
         self.pos = saved_pos;
@@ -779,6 +784,23 @@ impl Parser<'_> {
 
                     // Check for more postfix operators
                     frame_stack.push(ExprParseFrame::ParsePostfix {
+                        min_bp,
+                        lhs_checkpoint,
+                    });
+                }
+                Some(Token::OptionalMemberAccessOperator) if self.mx_extensions_enabled => {
+                    self.builder
+                        .start_node_at(lhs_checkpoint, SyntaxKind::MemberAccessExpression.to_raw());
+                    self.parse_member_access_content();
+                    self.builder.finish_node();
+                    frame_stack.push(ExprParseFrame::ParsePostfix {
+                        min_bp,
+                        lhs_checkpoint,
+                    });
+                }
+                Some(Token::OptionalMemberAccessOperator) => {
+                    self.consume_error(vec!["Option VB6RExtensions On".to_string()]);
+                    frame_stack.push(ExprParseFrame::InfixLoop {
                         min_bp,
                         lhs_checkpoint,
                     });
@@ -1404,7 +1426,7 @@ impl Parser<'_> {
 
     /// Parse the content of a member access (everything after the dot).
     fn parse_member_access_content(&mut self) {
-        // Consume the period
+        // Consume the member operator.
         self.consume_token();
 
         // Skip whitespace after period

@@ -442,7 +442,7 @@ della presenza di nodi grammaticali.
 | Try/Catch/Finally | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED |
 | Using | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED |
 | Option Strict | PARTIAL | PARTIAL | BLOCKED | BLOCKED | PARTIAL |
-| `?.` | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED |
+| `?.` | PARTIAL | BLOCKED | BLOCKED | PARTIAL | PARTIAL |
 | `??` | PARTIAL | BLOCKED | PARTIAL | PARTIAL | PARTIAL |
 | Spread `...` | PARTIAL | BLOCKED | PARTIAL | PARTIAL | PARTIAL |
 | Array literals | PARTIAL | BLOCKED | PARTIAL | PARTIAL | PARTIAL |
@@ -488,11 +488,11 @@ della presenza di nodi grammaticali.
   lato destro solo quando il sinistro è `Nothing`; `Null` ed `Empty` vengono
   restituiti invariati. Il test sintetico verifica fallback, sentinels e
   comportamento senza opt-in; manca il type checking semantico end-to-end.
-- `?.` resta `BLOCKED`: `eval_expr` non risolve ancora l'accesso ai membri
-  degli oggetti e restituisce esplicitamente "Object member access is not
-  supported yet". Propagare `Nothing` senza la risoluzione del membro
-  nasconderebbe errori di membro inesistente; servono prima un modello oggetti
-  e accessi verificati.
+- `?.` è `PARTIAL`: con opt-in, `Nothing?.Membro` e le catene opzionali
+  propagano `Nothing`; `Null` mantiene errore 94. Per receiver non `Nothing`
+  o `Null` l'interprete fallisce esplicitamente perché manca la risoluzione
+  dei membri. Servono un modello oggetti e accessi verificati per completarla.
+  Quattro test dedicati verificano questi casi e il rifiuto senza opt-in.
 - Array literals: i literal non vuoti `[ ... ]` sono accettati solo con
   l'opt-in, producono array rank-1 con lower bound zero e inferenza limitata
   al tipo comune supportato; gli identificatori delimitati tra parentesi
@@ -517,7 +517,7 @@ della presenza di nodi grammaticali.
   un'API di registrazione/invocazione callback su nuovi frame.
 - Validazione corrente: `cargo test --offline -p vb6parse --lib` (181 test),
   `cargo test --offline -p vb6semantic --test mx_s04_s08` (2 test) e la
-  suite completa `cargo test --offline -p vb6interpret` (228 test) passano.
+  suite completa `cargo test --offline -p vb6interpret` (232 test) passano.
   `mx_array_literal` (4 test) e `mx_inline_continue` (3 test) sono inclusi
   nella suite completa.
   Clippy mirato con `-D warnings` e `rustfmt --check` sui file Rust modificati

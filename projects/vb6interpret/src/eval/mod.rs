@@ -29,6 +29,36 @@ enum InterpolatedPart {
 }
 
 impl Interpreter {
+    fn eval_member_access(&mut self, node: &CstNode) -> RunResult<VBVariant> {
+        let parts: Vec<&CstNode> = node.significant_children().collect();
+        let Some(receiver) = parts.first().copied() else {
+            return Err(self.error_at(node, VBError::invalid_procedure_call(), None));
+        };
+        let optional = parts
+            .iter()
+            .any(|part| part.kind() == SyntaxKind::OptionalMemberAccessOperator);
+        let value = self.eval_expr(receiver)?;
+
+        if optional && value == VBVariant::Nothing {
+            return Ok(VBVariant::Nothing);
+        }
+        if optional && value == VBVariant::Null {
+            return Err(self.error_at(
+                node,
+                VBError::with_description(err_number::INVALID_USE_OF_NULL, "Invalid use of Null"),
+                None,
+            ));
+        }
+        Err(self.error_at(
+            node,
+            VBError::with_description(
+                err_number::INVALID_PROCEDURE_CALL,
+                "Object member access is not supported yet",
+            ),
+            None,
+        ))
+    }
+
     /// Evaluate an expression node to a value.
     pub(crate) fn eval_expr(&mut self, node: &CstNode) -> RunResult<VBVariant> {
         match node.kind() {
@@ -43,6 +73,9 @@ impl Interpreter {
             | SyntaxKind::DecimalLiteral
             | SyntaxKind::StringLiteral
             | SyntaxKind::DateLiteral => self.eval_literal(node),
+            SyntaxKind::NothingKeyword | SyntaxKind::NullKeyword | SyntaxKind::EmptyKeyword => {
+                self.eval_literal(node)
+            }
             SyntaxKind::StringLiteralExpression => {
                 if node
                     .first_child()
@@ -84,14 +117,7 @@ impl Interpreter {
                 }
             }
             SyntaxKind::CallExpression => self.eval_call(node),
-            SyntaxKind::MemberAccessExpression => Err(self.error_at(
-                node,
-                VBError::with_description(
-                    err_number::INVALID_PROCEDURE_CALL,
-                    "Object member access is not supported yet",
-                ),
-                None,
-            )),
+            SyntaxKind::MemberAccessExpression => self.eval_member_access(node),
             SyntaxKind::TypeOfExpression => Err(self.error_at(
                 node,
                 VBError::with_description(
