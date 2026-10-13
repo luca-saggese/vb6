@@ -151,6 +151,9 @@ impl BindingPower {
     /// Logical implication operator (`Imp`) - lowest precedence
     pub(super) const IMP: BindingPower = BindingPower(10);
 
+    /// MX null coalescing; right-associative and weaker than logical operators.
+    pub(super) const NULL_COALESCING: BindingPower = BindingPower(5);
+
     /// Logical equivalence operator (`Eqv`)
     pub(super) const EQV: BindingPower = BindingPower(20);
 
@@ -955,6 +958,16 @@ impl Parser<'_> {
             Some(Token::StringLiteral) => {
                 self.parse_string_literal();
             }
+            Some(Token::InterpolatedStringLiteral) => {
+                if self.mx_extensions_enabled {
+                    self.builder
+                        .start_node(SyntaxKind::StringLiteralExpression.to_raw());
+                    self.consume_token();
+                    self.builder.finish_node();
+                } else {
+                    self.consume_error(vec!["Option VB6RExtensions On".to_string()]);
+                }
+            }
             Some(Token::TrueKeyword | Token::FalseKeyword) => {
                 self.parse_boolean_literal();
             }
@@ -1348,6 +1361,9 @@ impl Parser<'_> {
     /// - Right-associative: `right_bp = left_bp` (exponentiation)
     fn get_infix_binding_power(&self) -> Option<(BindingPower, BindingPower)> {
         let token = self.current_token()?;
+        if self.mx_extensions_enabled && *token == Token::NullCoalescingOperator {
+            return Some((BindingPower::NULL_COALESCING, BindingPower::NULL_COALESCING));
+        }
         if self.mx_extensions_enabled
             && let Some((text, Token::Identifier)) = self.tokens.get(self.pos)
         {

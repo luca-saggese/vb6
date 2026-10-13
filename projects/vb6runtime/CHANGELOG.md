@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Blocked
+- MX S06/S07 runtime support remains **BLOCKED**. `RunError` wraps a
+  `VBError`, but the interpreter has no catch/unwind contract to preserve a
+  primary error across cleanup. `VBObject` has no `Dispose` operation, and
+  interpreter expression evaluation does not support member access/calls, so
+  there is no existing resource protocol to invoke safely. No default/no-op
+  disposal behavior was introduced.
+
 - Added the `VBVariant::Decimal` subtype backed by `VBDecimal` coefficient and
   scale, with formatting and checked Decimal-to-integer/Currency conversions.
   Full Decimal arithmetic and complete VB6 Decimal bounds are not implemented.

@@ -799,6 +799,7 @@ impl SemanticAnalyzer {
 
     /// Dispatch a single module/class-level statement
     fn process_statement(&mut self, statement: &CstNode, line: usize) -> Result<()> {
+        self.report_unimplemented_mx_features(statement);
         match statement.kind() {
             SyntaxKind::DimStatement => self.process_dim_statement(statement, line)?,
             SyntaxKind::TypeStatement => self.process_type_statement(statement, line)?,
@@ -813,6 +814,41 @@ impl SemanticAnalyzer {
             _ => {}
         }
         Ok(())
+    }
+
+    fn report_unimplemented_mx_features(&mut self, statement: &CstNode) {
+        let tokens: Vec<&CstNode> = statement
+            .descendants()
+            .filter(|node| node.is_token() && !Self::is_trivia(node.kind()))
+            .collect();
+        for pair in tokens.windows(2) {
+            let first = pair[0].text();
+            let second = pair[1].text();
+            let feature = if first.eq_ignore_ascii_case("Option")
+                && second.eq_ignore_ascii_case("Strict")
+            {
+                Some((
+                    "MX S08 Option Strict",
+                    "the semantic analyzer does not type-check expression operands, assignments, or calls end-to-end",
+                    pair[0].start_offset(),
+                ))
+            } else if first.eq_ignore_ascii_case("As") && second.eq_ignore_ascii_case("Auto") {
+                Some((
+                    "MX S04 As Auto",
+                    "the semantic analyzer does not infer declaration types from initializer or assignment expressions",
+                    pair[1].start_offset(),
+                ))
+            } else {
+                None
+            };
+            if let Some((feature, reason, offset)) = feature {
+                self.errors.push(SemanticError::UnsupportedFeature {
+                    feature: feature.to_string(),
+                    reason: reason.to_string(),
+                    location: self.location_at(offset),
+                });
+            }
+        }
     }
 
     /// Process a `Dim` or `Const` statement (both use the `DimStatement` syntax kind)
@@ -1435,7 +1471,12 @@ impl SemanticAnalyzer {
                 TypeInfo::object()
             }
             SyntaxKind::Identifier => {
-                TypeInfo::new(VBType::UserType(Self::join_type_name(tokens, index)))
+                let name = Self::join_type_name(tokens, index);
+                if name.eq_ignore_ascii_case("Auto") {
+                    TypeInfo::unknown()
+                } else {
+                    TypeInfo::new(VBType::UserType(name))
+                }
             }
             _ => TypeInfo::unknown(),
         }

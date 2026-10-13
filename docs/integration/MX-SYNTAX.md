@@ -431,13 +431,13 @@ della presenza di nodi grammaticali.
 | Return expression | PARTIAL | BLOCKED | PARTIAL | PARTIAL | PARTIAL |
 | Continue For/Do | PARTIAL | BLOCKED | PARTIAL | PARTIAL | PARTIAL |
 | AndAlso/OrElse | PARTIAL | BLOCKED | PARTIAL | PARTIAL | PARTIAL |
-| As Auto | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED |
-| Interpolazione `$"..."` | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED |
+| As Auto | PARTIAL | PARTIAL | BLOCKED | BLOCKED | PARTIAL |
+| Interpolazione `$"..."` | PARTIAL | BLOCKED | PARTIAL | PARTIAL | PARTIAL |
 | Try/Catch/Finally | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED |
 | Using | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED |
-| Option Strict | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED |
+| Option Strict | PARTIAL | PARTIAL | BLOCKED | BLOCKED | PARTIAL |
 | `?.` | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED |
-| `??` | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED |
+| `??` | PARTIAL | BLOCKED | PARTIAL | PARTIAL | PARTIAL |
 | Spread `...` | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED |
 | Array literals | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED |
 | Destructuring | BLOCKED | BLOCKED | BLOCKED | BLOCKED | BLOCKED |
@@ -455,14 +455,37 @@ della presenza di nodi grammaticali.
 - Interprete: `Return <expr>` termina una Function; i continue attraversano
   loop non corrispondenti e arrivano al loop più vicino del tipo corretto;
   gli operatori short-circuit non valutano l'operando destro quando evitabile.
-- Test sintetici end-to-end superati: `mx_return_and_short_circuit_are_opt_in_and_executable`,
-  `mx_continue_targets_the_nearest_matching_loop` e
-  `mx_continue_without_an_enclosing_matching_loop_is_an_error` e
-  `mx_keywords_remain_identifiers_without_the_module_opt_in` in
+- Test sintetici interpreter superati: `mx_return_and_short_circuit_are_opt_in_and_executable`,
+  `mx_continue_targets_the_nearest_matching_loop`,
+  `mx_continue_without_an_enclosing_matching_loop_is_an_error`,
+  `mx_keywords_remain_identifiers_without_the_module_opt_in`,
+  `mx_interpolated_strings_evaluate_expressions_and_escape_braces` e
+  `mx_interpolated_strings_require_the_module_opt_in` e
+  `mx_null_coalescing_only_falls_back_for_nothing_and_is_opt_in` in
   `projects/vb6interpret/tests/run.rs`.
 - Semantica statica e analisi del tipo di ritorno non sono ancora collegate
   all'interprete. Nessuna compatibilità con Microsoft viene inferita da questi
   test sintetici.
-- `cargo test --offline -p vb6interpret --test run mx_` passa (3 test);
-  `cargo check --offline --lib -p vb6parse -p vb6interpret` passa. Il test
-  completo di `vb6parse` è bloccato da fixture `test-data/` assenti.
+- Interpolazione: lexer e parser riconoscono `$"..."` solo con opt-in;
+  l'interprete valuta le espressioni embedded nel frame/scoping corrente,
+  applica escaping `{{`/`}}` e propagazione degli errori di conversione. La
+  valutazione delle espressioni usa un CST temporaneo costruito dal parser.
+  Copertura sintetica positiva e opt-in negativo passano; semantica statica
+  ancora assente.
+- `??`: il parser lo abilita soltanto con l'opt-in, con associatività a destra
+  e precedenza inferiore a tutti gli operatori logici. L'interprete valuta il
+  lato destro solo quando il sinistro è `Nothing`; `Null` ed `Empty` vengono
+  restituiti invariati. Il test sintetico verifica fallback, sentinels e
+  comportamento senza opt-in; manca il type checking semantico end-to-end.
+- `As Auto` e `Option Strict` sono diagnosi semantiche esplicite di supporto
+  non disponibile, non feature implementate: l'inferenza e il type checking
+  d'espressione sono bloccati dall'architettura dell'analizzatore.
+- S06/S07 sono `BLOCKED`: mancano produzioni compound, unwinding del cleanup
+  nel flusso di controllo, e protocollo runtime `Dispose`.
+- Validazione corrente: `cargo test --offline -p vb6parse --lib` (181 test),
+  `cargo test --offline -p vb6semantic --test mx_s04_s08` (2 test) e la
+  suite completa `cargo test --offline -p vb6interpret` (215 test) passano.
+  Clippy mirato con `-D warnings` e `rustfmt --check` sui file Rust modificati
+  passano.
+  La suite d'integrazione completa `vb6parse` resta bloccata da fixture
+  `test-data/` assenti.

@@ -21,13 +21,18 @@ use vb6parse::parsers::SyntaxKind;
 use vb6parse::parsers::cst::CstNode;
 use vb6runtime::VBVariant;
 
+#[derive(Debug, PartialEq)]
+enum InterpolatedPart {
+    Text(String),
+    Expression(String),
+}
+
 impl Interpreter {
     /// Evaluate an expression node to a value.
     pub(crate) fn eval_expr(&mut self, node: &CstNode) -> RunResult<VBVariant> {
         match node.kind() {
             SyntaxKind::LiteralExpression
             | SyntaxKind::NumericLiteralExpression
-            | SyntaxKind::StringLiteralExpression
             | SyntaxKind::BooleanLiteralExpression
             | SyntaxKind::IntegerLiteral
             | SyntaxKind::LongLiteral
@@ -37,6 +42,16 @@ impl Interpreter {
             | SyntaxKind::DecimalLiteral
             | SyntaxKind::StringLiteral
             | SyntaxKind::DateLiteral => self.eval_literal(node),
+            SyntaxKind::StringLiteralExpression => {
+                if node
+                    .first_child()
+                    .is_some_and(|child| child.kind() == SyntaxKind::InterpolatedStringLiteral)
+                {
+                    self.eval_interpolated_string(node)
+                } else {
+                    self.eval_literal(node)
+                }
+            }
             SyntaxKind::IdentifierExpression => self.eval_identifier(node),
             SyntaxKind::BinaryExpression => {
                 let parts: Vec<&CstNode> = node.significant_children().collect();
@@ -117,8 +132,147 @@ impl Interpreter {
             return literal_value(token.text(), token.kind())
                 .ok_or_else(|| self.error_at(node, VBError::type_mismatch(), None));
         }
+
         literal_value(node.text(), node.kind())
             .ok_or_else(|| self.error_at(node, VBError::type_mismatch(), None))
+    }
+
+    fn eval_interpolated_string(&mut self, node: &CstNode) -> RunResult<VBVariant> {
+        let raw = node
+            .first_child()
+            .map(|child| child.text())
+            .ok_or_else(|| self.error_at(node, invalid_interpolation("missing token"), None))?;
+        let parts = Self::split_interpolated_string(raw).ok_or_else(|| {
+            self.error_at(node, invalid_interpolation("malformed delimiters"), None)
+        })?;
+        let mut result = String::new();
+        for part in parts {
+            match part {
+                InterpolatedPart::Text(text) => result.push_str(&text),
+                InterpolatedPart::Expression(expression) => {
+                    if expression.trim().is_empty() {
+                        return Err(self.error_at(
+                            node,
+                            invalid_interpolation("empty embedded expression"),
+                            None,
+                        ));
+                    }
+                    let value = self.eval_interpolated_expression(&expression, node)?;
+                    result.push_str(
+                        &value
+                            .as_string()
+                            .map_err(|error| self.error_at(node, error, None))?,
+                    );
+                }
+            }
+        }
+        Ok(VBVariant::from_string(result))
+    }
+
+    fn eval_interpolated_expression(
+        &mut self,
+        expression: &str,
+        node: &CstNode,
+    ) -> RunResult<VBVariant> {
+        let source = format!(
+            "Attribute VB_Name = \"MxInterpolation\"\nOption VB6RExtensions On\nSub MxInterpolation()\nMxValue = ({expression})\nEnd Sub\n"
+        );
+        let source_file = vb6parse::io::SourceFile::from_string("mx-interpolation.bas", &source);
+        let module = vb6parse::files::ModuleFile::parse(&source_file)
+            .ok_or_errors()
+            .map_err(|_| {
+                self.error_at(
+                    node,
+                    invalid_interpolation("embedded expression did not parse"),
+                    None,
+                )
+            })?;
+        let root = module.cst.to_root_node();
+        fn find_assignment(node: &CstNode) -> Option<CstNode> {
+            if node.kind() == SyntaxKind::AssignmentStatement {
+                return Some(node.clone());
+            }
+            node.children().iter().find_map(find_assignment)
+        }
+        let assignment = find_assignment(&root).ok_or_else(|| {
+            self.error_at(
+                node,
+                invalid_interpolation("embedded expression was not found"),
+                None,
+            )
+        })?;
+        let expression = assignment
+            .significant_children()
+            .last()
+            .cloned()
+            .ok_or_else(|| {
+                self.error_at(
+                    node,
+                    invalid_interpolation("embedded expression is empty"),
+                    None,
+                )
+            })?;
+        self.eval_expr(&expression)
+    }
+
+    fn split_interpolated_string(raw: &str) -> Option<Vec<InterpolatedPart>> {
+        let inner = raw.strip_prefix("$\"")?.strip_suffix('"')?;
+        let chars: Vec<char> = inner.chars().collect();
+        let mut parts = Vec::new();
+        let mut text = String::new();
+        let mut index = 0;
+        while index < chars.len() {
+            match chars[index] {
+                '"' if chars.get(index + 1) == Some(&'"') => {
+                    text.push('"');
+                    index += 2;
+                }
+
+                '{' if chars.get(index + 1) == Some(&'{') => {
+                    text.push('{');
+                    index += 2;
+                }
+                '}' if chars.get(index + 1) == Some(&'}') => {
+                    text.push('}');
+                    index += 2;
+                }
+                '{' => {
+                    if !text.is_empty() {
+                        parts.push(InterpolatedPart::Text(std::mem::take(&mut text)));
+                    }
+                    index += 1;
+                    let start = index;
+                    let mut quoted = false;
+                    while index < chars.len() {
+                        match chars[index] {
+                            '"' if quoted && chars.get(index + 1) == Some(&'"') => index += 2,
+                            '"' => {
+                                quoted = !quoted;
+                                index += 1;
+                            }
+                            '}' if !quoted => break,
+                            _ => index += 1,
+                        }
+                    }
+                    if index == chars.len() {
+                        return None;
+                    }
+                    parts.push(InterpolatedPart::Expression(
+                        chars[start..index].iter().collect(),
+                    ));
+                    index += 1;
+                }
+                '}' => return None,
+                character => {
+                    text.push(character);
+                    index += 1;
+                }
+            }
+        }
+        if !text.is_empty() {
+            parts.push(InterpolatedPart::Text(text));
+        }
+        Some(parts)
     }
 
     /// Evaluate an identifier reference.
@@ -160,6 +314,13 @@ impl Interpreter {
     ) -> RunResult<VBVariant> {
         let lhs = self.eval_expr(left)?;
         let operator_text = op.text();
+        if op.kind() == SyntaxKind::NullCoalescingOperator {
+            return if lhs == VBVariant::Nothing {
+                self.eval_expr(right)
+            } else {
+                Ok(lhs)
+            };
+        }
         if operator_text.eq_ignore_ascii_case("AndAlso") {
             let left_value = lhs.as_bool()?;
             if !left_value {
@@ -376,6 +537,13 @@ impl Interpreter {
             .in_procedure(&self.current_procedure_name())
             .with_builtin_call(call_info)
     }
+}
+
+fn invalid_interpolation(reason: &str) -> VBError {
+    VBError::with_description(
+        err_number::INVALID_PROCEDURE_CALL,
+        format!("Invalid interpolated string: {reason}"),
+    )
 }
 
 // Re-exported for builtins that need currency scaling.

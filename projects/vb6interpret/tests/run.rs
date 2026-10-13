@@ -75,6 +75,28 @@ fn mx_return_and_short_circuit_are_opt_in_and_executable() {
 }
 
 #[test]
+fn mx_null_coalescing_only_falls_back_for_nothing_and_is_opt_in() {
+    let source = "Attribute VB_Name = \"M\"\n\
+        Option VB6RExtensions On\n\
+        Sub Main()\n\
+            Debug.Print Nothing ?? \"fallback\"\n\
+            Debug.Print IsNull(Null ?? \"fallback\")\n\
+            Debug.Print IsEmpty(Empty ?? 1)\n\
+        End Sub\n";
+    assert_eq!(
+        run_source(source).expect("MX execution failed"),
+        vec!["fallback", "True", "True"]
+    );
+
+    let legacy_source =
+        "Attribute VB_Name = \"M\"\nSub Main()\n    Debug.Print Nothing ?? \"fallback\"\nEnd Sub\n";
+    assert_eq!(
+        run_source(legacy_source).expect("legacy execution failed"),
+        vec!["Nothing"]
+    );
+}
+
+#[test]
 fn mx_continue_targets_the_nearest_matching_loop() {
     let source = "Attribute VB_Name = \"M\"\n\
         Option VB6RExtensions On\n\
@@ -123,6 +145,33 @@ fn mx_keywords_remain_identifiers_without_the_module_opt_in() {
         run_source(source).expect("legacy identifier execution failed"),
         vec!["7"]
     );
+}
+
+#[test]
+fn mx_interpolated_strings_evaluate_expressions_and_escape_braces() {
+    let source = "Attribute VB_Name = \"M\"\n\
+        Option VB6RExtensions On\n\
+        Sub Main()\n\
+            Dim personName As String\n\
+            personName = \"Ada\"\n\
+            Debug.Print personName\n\
+            Debug.Print $\"Hello {personName}, {1 + 2}!\"\n\
+            Debug.Print $\"{{literal}}\"\n\
+            Debug.Print $\"He said \"\"hi\"\"\"\n\
+        End Sub\n";
+    assert_eq!(
+        run_source(source).expect("MX interpolation failed"),
+        vec!["Ada", "Hello Ada, 3!", "{literal}", "He said \"hi\""]
+    );
+}
+
+#[test]
+fn mx_interpolated_strings_require_the_module_opt_in() {
+    let source = "Attribute VB_Name = \"M\"\n\
+        Sub Main()\n\
+            Debug.Print $\"Hello\"\n\
+        End Sub\n";
+    assert!(run_source(source).is_err());
 }
 
 #[test]

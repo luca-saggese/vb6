@@ -2,8 +2,20 @@
 
 ## Unreleased
 
+### Blocked
+- MX S06 (`Try`/`Catch`/`Finally`) and S07 (`Using`) remain **BLOCKED**.
+  The interpreter dispatches directly over the CST and has no Try/Using
+  control-flow nodes or cleanup-unwinding mechanism; adding syntax without
+  guaranteed `Finally` execution on every flow and error exit would be unsafe.
+  The runtime also lacks a `Dispose` protocol for `Using`.
+
 - Added opt-in execution for MX `Return <expr>` in functions, loop-targeted
   `Continue For/Do`, and lazy `AndAlso`/`OrElse` Boolean evaluation.
+- Added opt-in interpolation for `$"..."`, including brace escaping and
+  expression evaluation in the current interpreter scope.
+- Added MX `??` evaluation: only `Nothing` selects the fallback; `Null` and
+  `Empty` remain distinct and are returned unchanged. Added literal mapping for
+  those three VB sentinel values, required to execute the coalescing expression.
 - Continue signals are scoped to the active procedure and matching loop;
   invalid targets produce a runtime error instead of escaping into callers.
 - These features remain partial: MX static validation, function return-type
@@ -13,14 +25,14 @@
 ### Validation
 
 `cargo check --offline --lib -p vb6parse -p vb6interpret` passed.
-`cargo test --offline -p vb6interpret --test run mx_` passed (4 tests);
-the full `vb6interpret` suite passed (212 tests), and `vb6parse --lib`
-passed (180 tests).
-`cargo clippy --offline --lib -p vb6parse -p vb6interpret -- -D warnings`
+`cargo test --offline -p vb6interpret --test run mx_` passed (7 tests);
+the full `vb6interpret` suite passed (215 tests), `vb6parse --lib`
+passed (181 tests), and `cargo test --offline -p vb6semantic --test
+mx_s04_s08` passed (2 tests).
+`cargo clippy --offline --lib -p vb6parse -p vb6semantic -p vb6interpret -- -D warnings`
 and `rustfmt --edition 2024 --check` on changed Rust files passed.
-The complete interpreter/parser test suites are not yet validated in this
-phase; parser integration tests cannot compile because repository fixture
-files under `test-data/` are missing.
+Parser integration tests remain unavailable because repository fixture files
+under `test-data/` are missing.
 
 ## Previous Unreleased M3 changes
 

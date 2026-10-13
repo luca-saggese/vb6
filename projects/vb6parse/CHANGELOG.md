@@ -7,11 +7,18 @@ and this project (tries!) to adheres to [Semantic Versioning](https://semver.org
 
 ## [1.2.3] - Unreleased
 
+### Blocked
+- MX S06 (`Try`/`Catch`/`Finally`) and S07 (`Using`) remain **BLOCKED**:
+  the parser has no compound-statement productions for either construct, and
+  no partial syntax acceptance was added.
+
 ### Added
 - `ExpressionClause` and `KeywordClause` variants to `SyntaxKind` for named and keyword expression parsing
 - `PropString` type for null-propagating values in built-in functions
 - Opt-in `Option VB6RExtensions On` parsing gates for MX `Return <expr>`, `Continue For/Do`, and contextual `AndAlso`/`OrElse`
 - `ContinueStatement` CST node and expression parsing for `Return <expr>` when MX extensions are enabled
+- Contextual `$"..."` interpolated-string tokenization and opt-in expression parsing; VB6 resource references with `:"` numeric suffixes remain on the legacy lexer path
+- Opt-in `??` tokenization and parsing with lowest-precedence, right-associative binding
 
 ### Changed
 - **Massive: Removed flat expression handling** — All statement parsers in vb6parse now use full expression trees instead of flat token consumption. This affects every statement parser in the codebase.
