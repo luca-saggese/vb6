@@ -1,8 +1,11 @@
-//! Typed high-level intermediate representation for VB6.
+//! Typed VB6 intermediate representation with a native-compatible lowering view.
 //!
 //! HIR spans are byte ranges in the module CST, which remains the authoritative
-//! source representation. Most MX-only forms remain reserved; opt-in
-//! `Return <expr>` is lowered and checked against its Function result type.
+//! source representation. The typed statement tree remains available for
+//! semantic checks; each procedure also carries a flattened native control-flow
+//! view with recovered Microsoft AST tags and evidence.
+//! Most MX-only forms remain reserved; opt-in `Return <expr>` is lowered and
+//! checked against its Function result type.
 
 use crate::{ScopeKind, ScopeManager, SemanticError};
 use crate::{SourceLocation, TypeInfo};
@@ -137,7 +140,85 @@ pub struct Procedure {
     pub signature: ProcedureSignature,
     /// Typed body statements.
     pub body: Vec<Statement>,
+    /// Native-compatible linear control-flow view of the body.
+    pub native_flow: Vec<NativeFlowNode>,
     /// Procedure source and symbol metadata.
+    pub info: NodeInfo,
+}
+
+/// Namespace for a recovered Microsoft AST kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeAstNamespace {
+    /// Expression-kind tag read from an expression node.
+    Expression,
+    /// Statement-kind tag read from a statement node.
+    Statement,
+}
+
+/// Confidence in a recovered source-HIR to Microsoft AST association.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeAstEvidence {
+    /// Directly observed in the recovered native dispatcher or construction path.
+    Observed,
+    /// Inferred from the recovered behavior and opcode matrix.
+    Inferred,
+    /// No defensible native kind is currently known.
+    Unknown,
+    /// The source construct is represented by another node and has no native node of its own.
+    Passthrough,
+}
+
+/// Microsoft AST identity retained for a source-HIR node.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NativeAstMapping {
+    /// Expression or statement namespace.
+    pub namespace: NativeAstNamespace,
+    /// Numeric native tag, absent while the mapping remains unresolved.
+    pub kind: Option<u16>,
+    /// Provenance of the association.
+    pub evidence: NativeAstEvidence,
+}
+
+/// Operation in the flattened native-compatible control-flow view.
+#[derive(Debug, Clone)]
+pub enum NativeFlowKind {
+    /// A statement whose internal expression tree remains in the typed HIR.
+    SourceStatement(Box<Statement>),
+    /// A native label definition.
+    Label(u32),
+    /// Conditional branch to a native label.
+    Branch {
+        /// Condition evaluated by the branch.
+        condition: Expression,
+        /// Destination label.
+        target: u32,
+        /// Branch polarity.
+        when_true: bool,
+    },
+    /// Unconditional branch to a native label.
+    Jump {
+        /// Destination label.
+        target: u32,
+    },
+    /// Native label fixup retained for a source-level symbolic jump.
+    FixupJump {
+        /// Label spelling as written in source.
+        target: String,
+    },
+    /// Native loop form retained alongside its flattened branch flow.
+    LoopForm(Box<Statement>),
+    /// Control construct not yet safely lowered to native branch operations.
+    UnloweredControl(Box<Statement>),
+}
+
+/// One operation in a procedure's native-compatible linear control flow.
+#[derive(Debug, Clone)]
+pub struct NativeFlowNode {
+    /// Flattened operation.
+    pub kind: NativeFlowKind,
+    /// Native statement identity and evidence.
+    pub native_ast: NativeAstMapping,
+    /// Original source and semantic metadata.
     pub info: NodeInfo,
 }
 
@@ -254,6 +335,8 @@ pub enum LoopKind {
 pub struct Expression {
     /// Expression form.
     pub kind: ExpressionKind,
+    /// Recovered Microsoft AST kind associated with this expression.
+    pub native_ast: NativeAstMapping,
     /// Type, binding and source metadata.
     pub info: NodeInfo,
 }
@@ -272,6 +355,8 @@ pub enum StatementKind {
     Expression(Expression),
     /// MX expression return from a Function.
     Return(Expression),
+    /// Native VB6 control statement retained with its source operands.
+    NativeControl(NativeControl),
     /// MX continue to the nearest enclosing loop of the requested kind.
     Continue(ContinueTarget),
     /// Structured conditional.
@@ -350,6 +435,35 @@ pub enum StatementKind {
         /// Catch callback body.
         catch_body: Option<Vec<Statement>>,
     },
+}
+
+/// Native VB6 statement forms represented in source HIR.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NativeControl {
+    /// Label declaration.
+    Label(String),
+    /// Unconditional GoTo.
+    Goto(String),
+    /// GoSub call.
+    Gosub(String),
+    /// Return from the most recent GoSub.
+    GosubReturn,
+    /// Exit Sub.
+    ExitSub,
+    /// Exit Function or Property.
+    ExitFunction,
+    /// Stop execution.
+    Stop,
+    /// End the program.
+    End,
+    /// On ... GoSub with a single target.
+    OnGosubA(String),
+    /// On ... GoSub with multiple targets.
+    OnGosubB(String),
+    /// On Error handler selection.
+    OnError(String),
+    /// Resume from an error handler.
+    Resume(String),
 }
 
 /// A statement with source and semantic metadata.
@@ -654,6 +768,8 @@ fn lower_unit(
                 };
                 check_return_statements(&mut body, return_type.as_ref(), &mut diagnostics);
                 check_continue_statements(&body, &mut Vec::new(), &mut diagnostics);
+                let procedure_info = make_info(&node, module_scope.map(|s| s.id), None);
+                let native_flow = lower_native_flow(&body);
                 procedures.push(Procedure {
                     name,
                     signature: ProcedureSignature {
@@ -661,7 +777,8 @@ fn lower_unit(
                         parameters,
                     },
                     body,
-                    info: make_info(&node, module_scope.map(|s| s.id), None),
+                    native_flow,
+                    info: procedure_info,
                 });
             }
             SyntaxKind::DimStatement => {
@@ -712,6 +829,18 @@ fn first_name(node: &CstNode) -> String {
         .find(|child| child.is_token() && child.kind() == SyntaxKind::Identifier)
         .map(|child| child.text().to_string())
         .unwrap_or_default()
+}
+
+fn statement_text_after_keyword(node: &CstNode, keyword: &str) -> String {
+    let text = node.text().trim();
+    let text_lower = text.to_ascii_lowercase();
+    let keyword_lower = keyword.to_ascii_lowercase();
+    text_lower
+        .find(&keyword_lower)
+        .and_then(|start| text.get(start + keyword.len()..))
+        .unwrap_or_default()
+        .trim()
+        .to_string()
 }
 
 fn lower_statement(
@@ -979,15 +1108,84 @@ fn lower_statement(
             let expression = node
                 .children()
                 .iter()
-                .find(|child| !child.is_token() && is_expression_kind(child.kind()))
-                .ok_or_else(|| unsupported(node, make_info))?;
-            let value = lower_expression(expression, scope_id, scopes, make_info)?;
-            let info = make_info(node, scope_id, value.info.ty.clone());
+                .find(|child| !child.is_token() && is_expression_kind(child.kind()));
+            let info = make_info(node, scope_id, None);
+            let kind = if let Some(expression) = expression {
+                let value = lower_expression(expression, scope_id, scopes, make_info)?;
+                StatementKind::Return(value)
+            } else {
+                StatementKind::NativeControl(NativeControl::GosubReturn)
+            };
+            Ok(Statement { kind, info })
+        }
+        SyntaxKind::GotoStatement => Ok(Statement {
+            kind: StatementKind::NativeControl(NativeControl::Goto(statement_text_after_keyword(
+                node, "GoTo",
+            ))),
+            info: make_info(node, scope_id, None),
+        }),
+        SyntaxKind::GoSubStatement => Ok(Statement {
+            kind: StatementKind::NativeControl(NativeControl::Gosub(statement_text_after_keyword(
+                node, "GoSub",
+            ))),
+            info: make_info(node, scope_id, None),
+        }),
+        SyntaxKind::LabelStatement => Ok(Statement {
+            kind: StatementKind::NativeControl(NativeControl::Label(
+                node.text().trim().trim_end_matches(':').trim().to_string(),
+            )),
+            info: make_info(node, scope_id, None),
+        }),
+        SyntaxKind::ExitStatement => {
+            let is_function = node.descendants().any(|child| {
+                child.is_token()
+                    && matches!(
+                        child.text().to_ascii_lowercase().as_str(),
+                        "function" | "property"
+                    )
+            });
             Ok(Statement {
-                kind: StatementKind::Return(value),
-                info,
+                kind: StatementKind::NativeControl(if is_function {
+                    NativeControl::ExitFunction
+                } else {
+                    NativeControl::ExitSub
+                }),
+                info: make_info(node, scope_id, None),
             })
         }
+        SyntaxKind::StopStatement => Ok(Statement {
+            kind: StatementKind::NativeControl(NativeControl::Stop),
+            info: make_info(node, scope_id, None),
+        }),
+        SyntaxKind::EndStatement => Ok(Statement {
+            kind: StatementKind::NativeControl(NativeControl::End),
+            info: make_info(node, scope_id, None),
+        }),
+        SyntaxKind::OnGoSubStatement => {
+            let raw = node.text().trim().to_string();
+            let labels = statement_text_after_keyword(node, "GoSub");
+            let has_multiple_targets = labels.contains(',');
+            Ok(Statement {
+                kind: StatementKind::NativeControl(if has_multiple_targets {
+                    NativeControl::OnGosubB(raw)
+                } else {
+                    NativeControl::OnGosubA(raw)
+                }),
+                info: make_info(node, scope_id, None),
+            })
+        }
+        SyntaxKind::OnErrorStatement => Ok(Statement {
+            kind: StatementKind::NativeControl(NativeControl::OnError(
+                node.text().trim().to_string(),
+            )),
+            info: make_info(node, scope_id, None),
+        }),
+        SyntaxKind::ResumeStatement => Ok(Statement {
+            kind: StatementKind::NativeControl(NativeControl::Resume(
+                statement_text_after_keyword(node, "Resume"),
+            )),
+            info: make_info(node, scope_id, None),
+        }),
         SyntaxKind::ContinueStatement => {
             let target = node
                 .children()
@@ -1359,6 +1557,7 @@ fn lower_expression(
             };
             let callee = Expression {
                 kind: ExpressionKind::Name(symbol.name.clone()),
+                native_ast: unknown_native_ast(NativeAstNamespace::Expression),
                 info: callee_info,
             };
             let mut arguments = Vec::new();
@@ -1455,7 +1654,382 @@ fn lower_expression(
         _ => return Err(unsupported(node, make_info)),
     };
     let info = make_info(node, scope_id, ty);
-    Ok(Expression { kind, info })
+    let native_ast = native_expression_mapping(&kind, info.ty.as_ref());
+    Ok(Expression {
+        kind,
+        native_ast,
+        info,
+    })
+}
+
+fn unknown_native_ast(namespace: NativeAstNamespace) -> NativeAstMapping {
+    NativeAstMapping {
+        namespace,
+        kind: None,
+        evidence: NativeAstEvidence::Unknown,
+    }
+}
+
+fn native_ast_mapping(
+    namespace: NativeAstNamespace,
+    kind: u16,
+    evidence: NativeAstEvidence,
+) -> NativeAstMapping {
+    NativeAstMapping {
+        namespace,
+        kind: Some(kind),
+        evidence,
+    }
+}
+
+fn native_expression_mapping(
+    expression: &ExpressionKind,
+    ty: Option<&TypeInfo>,
+) -> NativeAstMapping {
+    use NativeAstEvidence::{Inferred, Observed, Passthrough};
+    use NativeAstNamespace::Expression;
+
+    let (kind, evidence) = match expression {
+        ExpressionKind::Literal(_) => match ty.map(|ty| &ty.kind) {
+            Some(vb6core::types::VBType::Boolean)
+            | Some(vb6core::types::VBType::Byte)
+            | Some(vb6core::types::VBType::Integer)
+            | Some(vb6core::types::VBType::Long)
+            | Some(vb6core::types::VBType::Nothing) => (Some(0x01), Observed),
+            Some(vb6core::types::VBType::Currency) => (Some(0x02), Inferred),
+            Some(vb6core::types::VBType::Single)
+            | Some(vb6core::types::VBType::Double)
+            | Some(vb6core::types::VBType::Date) => (Some(0x03), Observed),
+            Some(vb6core::types::VBType::String) => (Some(0x04), Inferred),
+            Some(vb6core::types::VBType::Variant) => (Some(0x05), Observed),
+            _ => (None, NativeAstEvidence::Unknown),
+        },
+        ExpressionKind::Unary { operator, .. } => match operator {
+            Operator::Source(operator) if operator.trim() == "+" => (None, Passthrough),
+            Operator::Source(operator) if operator.eq_ignore_ascii_case("not") => {
+                (Some(0x06), Inferred)
+            }
+            Operator::Source(operator) if operator.trim() == "-" => (Some(0x07), Inferred),
+            _ => (None, NativeAstEvidence::Unknown),
+        },
+        ExpressionKind::Binary { operator, .. } => match operator {
+            Operator::Source(operator) => {
+                let kind = match operator.trim().to_ascii_lowercase().as_str() {
+                    "+" => Some(0x16),
+                    "-" => Some(0x17),
+                    "*" => Some(0x18),
+                    "/" => Some(0x19),
+                    "^" => Some(0x1a),
+                    "mod" => Some(0x1d),
+                    "\\" => Some(0x1e),
+                    "imp" => Some(0x1f),
+                    "eqv" => Some(0x20),
+                    "or" => Some(0x21),
+                    "xor" => Some(0x22),
+                    "and" => Some(0x23),
+                    "&" => Some(0x24),
+                    "like" => Some(0x25),
+                    "=" => Some(0x26),
+                    "<>" => Some(0x27),
+                    "<=" => Some(0x28),
+                    ">=" => Some(0x29),
+                    "<" => Some(0x2a),
+                    ">" => Some(0x2b),
+                    "is" => Some(0x36),
+                    _ => None,
+                };
+                (
+                    kind,
+                    if kind.is_some() {
+                        Inferred
+                    } else {
+                        NativeAstEvidence::Unknown
+                    },
+                )
+            }
+        },
+        ExpressionKind::Conversion { .. } => (None, NativeAstEvidence::Unknown),
+        _ => (None, NativeAstEvidence::Unknown),
+    };
+    match kind {
+        Some(kind) => native_ast_mapping(Expression, kind, evidence),
+        None => NativeAstMapping {
+            namespace: Expression,
+            kind: None,
+            evidence,
+        },
+    }
+}
+
+fn lower_native_flow(statements: &[Statement]) -> Vec<NativeFlowNode> {
+    let mut output = Vec::new();
+    let mut next_label = 0;
+    for statement in statements {
+        lower_native_statement(statement, &mut next_label, &mut output);
+    }
+    output
+}
+
+fn lower_native_statement(
+    statement: &Statement,
+    next_label: &mut u32,
+    output: &mut Vec<NativeFlowNode>,
+) {
+    use NativeAstEvidence::{Inferred, Observed};
+    use NativeAstNamespace::Statement;
+
+    match &statement.kind {
+        StatementKind::If {
+            condition,
+            then_body,
+            else_body,
+        } => {
+            let else_label = *next_label;
+            *next_label += 1;
+            let end_label = if else_body.is_empty() {
+                else_label
+            } else {
+                let label = *next_label;
+                *next_label += 1;
+                label
+            };
+            push_native_flow(
+                output,
+                statement,
+                NativeFlowKind::Branch {
+                    condition: condition.clone(),
+                    target: else_label,
+                    when_true: false,
+                },
+                0x06,
+                Inferred,
+            );
+            for child in then_body {
+                lower_native_statement(child, next_label, output);
+            }
+            if !else_body.is_empty() {
+                push_native_flow(
+                    output,
+                    statement,
+                    NativeFlowKind::Jump { target: end_label },
+                    0x04,
+                    Inferred,
+                );
+                push_native_flow(
+                    output,
+                    statement,
+                    NativeFlowKind::Label(else_label),
+                    0x03,
+                    Observed,
+                );
+                for child in else_body {
+                    lower_native_statement(child, next_label, output);
+                }
+            }
+            push_native_flow(
+                output,
+                statement,
+                NativeFlowKind::Label(end_label),
+                0x03,
+                Observed,
+            );
+        }
+        StatementKind::Loop {
+            loop_kind,
+            condition,
+            post_test,
+            until,
+            body,
+        } => {
+            push_native_flow(
+                output,
+                statement,
+                NativeFlowKind::LoopForm(Box::new(statement.clone())),
+                if *loop_kind == LoopKind::Do {
+                    0x0b
+                } else {
+                    0x09
+                },
+                Inferred,
+            );
+            let start = *next_label;
+            let end = start + 1;
+            *next_label += 2;
+            push_native_flow(
+                output,
+                statement,
+                NativeFlowKind::Label(start),
+                0x03,
+                Observed,
+            );
+            if !post_test {
+                if let Some(condition) = condition {
+                    push_native_flow(
+                        output,
+                        statement,
+                        NativeFlowKind::Branch {
+                            condition: condition.clone(),
+                            target: end,
+                            when_true: *until,
+                        },
+                        0x0c,
+                        Inferred,
+                    );
+                }
+            }
+            for child in body {
+                lower_native_statement(child, next_label, output);
+            }
+            if *post_test {
+                if let Some(condition) = condition {
+                    if *until {
+                        push_native_flow(
+                            output,
+                            statement,
+                            NativeFlowKind::Branch {
+                                condition: condition.clone(),
+                                target: end,
+                                when_true: true,
+                            },
+                            0x0c,
+                            Inferred,
+                        );
+                        push_native_flow(
+                            output,
+                            statement,
+                            NativeFlowKind::Jump { target: start },
+                            0x04,
+                            Inferred,
+                        );
+                    } else {
+                        push_native_flow(
+                            output,
+                            statement,
+                            NativeFlowKind::Branch {
+                                condition: condition.clone(),
+                                target: start,
+                                when_true: true,
+                            },
+                            0x0c,
+                            Inferred,
+                        );
+                    }
+                } else {
+                    push_native_flow(
+                        output,
+                        statement,
+                        NativeFlowKind::Jump { target: start },
+                        0x04,
+                        Inferred,
+                    );
+                }
+            } else {
+                push_native_flow(
+                    output,
+                    statement,
+                    NativeFlowKind::Jump { target: start },
+                    0x04,
+                    Inferred,
+                );
+            }
+            push_native_flow(
+                output,
+                statement,
+                NativeFlowKind::Label(end),
+                0x03,
+                Observed,
+            );
+        }
+        StatementKind::For { .. } => output.push(NativeFlowNode {
+            kind: NativeFlowKind::LoopForm(Box::new(statement.clone())),
+            native_ast: native_ast_mapping(Statement, 0x09, Inferred),
+            info: statement.info.clone(),
+        }),
+        StatementKind::Select { .. } | StatementKind::Try { .. } | StatementKind::Continue(_) => {
+            output.push(NativeFlowNode {
+                kind: NativeFlowKind::UnloweredControl(Box::new(statement.clone())),
+                native_ast: unknown_native_ast(Statement),
+                info: statement.info.clone(),
+            });
+        }
+        StatementKind::NativeControl(control) => {
+            let (tag, evidence) = native_control_mapping(control);
+            push_native_flow(
+                output,
+                statement,
+                NativeFlowKind::SourceStatement(Box::new(statement.clone())),
+                tag,
+                evidence,
+            );
+            if let NativeControl::Goto(target) = control {
+                push_native_flow(
+                    output,
+                    statement,
+                    NativeFlowKind::FixupJump {
+                        target: target.clone(),
+                    },
+                    0x13,
+                    Inferred,
+                );
+            }
+        }
+        _ => {
+            let mapping = match &statement.kind {
+                StatementKind::Assignment { .. } => native_ast_mapping(Statement, 0x02, Observed),
+                StatementKind::Expression(expression) => {
+                    let tracked_call = matches!(
+                        expression.kind,
+                        ExpressionKind::Call { .. } | ExpressionKind::Member { .. }
+                    );
+                    native_ast_mapping(Statement, if tracked_call { 0x0f } else { 0x02 }, Observed)
+                }
+                _ => unknown_native_ast(Statement),
+            };
+            output.push(NativeFlowNode {
+                kind: NativeFlowKind::SourceStatement(Box::new(statement.clone())),
+                native_ast: mapping,
+                info: statement.info.clone(),
+            });
+        }
+    }
+}
+
+fn native_control_mapping(control: &NativeControl) -> (u16, NativeAstEvidence) {
+    let tag = match control {
+        NativeControl::Label(_) => 0x03,
+        NativeControl::Goto(_) => 0x04,
+        NativeControl::Gosub(_) => 0x05,
+        NativeControl::GosubReturn => 0x14,
+        NativeControl::ExitSub => 0x11,
+        NativeControl::ExitFunction => 0x12,
+        NativeControl::Stop => 0x15,
+        NativeControl::End => 0x16,
+        NativeControl::OnGosubA(_) => 0x17,
+        NativeControl::OnGosubB(_) => 0x18,
+        NativeControl::OnError(_) => 0x19,
+        NativeControl::Resume(_) => 0x1a,
+    };
+    let evidence = match control {
+        NativeControl::Label(_) | NativeControl::Stop | NativeControl::End => {
+            NativeAstEvidence::Observed
+        }
+        _ => NativeAstEvidence::Inferred,
+    };
+    (tag, evidence)
+}
+
+fn push_native_flow(
+    output: &mut Vec<NativeFlowNode>,
+    source: &Statement,
+    kind: NativeFlowKind,
+    native_kind: u16,
+    evidence: NativeAstEvidence,
+) {
+    output.push(NativeFlowNode {
+        kind,
+        native_ast: native_ast_mapping(NativeAstNamespace::Statement, native_kind, evidence),
+        info: source.info.clone(),
+    });
 }
 
 fn lookup_in_chain<'a>(
@@ -1579,6 +2153,7 @@ fn implicit_conversion(expression: Expression, target_type: TypeInfo) -> Express
             target_type,
             conversion: ConversionKind::Implicit,
         },
+        native_ast: unknown_native_ast(NativeAstNamespace::Expression),
         info,
     }
 }
