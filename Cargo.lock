@@ -5359,6 +5359,7 @@ dependencies = [
  "vb6pcode",
  "vb6runtime",
  "vb6semantic",
+ "vba6-ast-codegen",
 ]
 
 [[package]]
@@ -5528,6 +5529,10 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-test",
 ]
+
+[[package]]
+name = "vba6-ast-codegen"
+version = "0.1.0"
 
 [[package]]
 name = "version-compare"

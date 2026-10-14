@@ -1,5 +1,7 @@
 //! Standalone metadata catalog and byte-stream decoder for Microsoft VB6 P-Code.
 
+pub mod logical_opcode_map;
+pub mod operator_selector;
 pub mod program;
 
 use std::{error::Error, fmt};

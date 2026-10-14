@@ -5,7 +5,7 @@ use std::fmt;
 
 use vb6core::types::TypeInfo;
 
-use crate::{DispatchTable, OpcodeInfo, table};
+use crate::{table, DispatchTable, OpcodeInfo};
 
 /// Version of the modern, platform-independent P-Code container.
 pub const PROGRAM_FORMAT_VERSION: u16 = 1;
@@ -61,6 +61,8 @@ pub enum FrameSlot {
 pub enum Operand {
     /// No operand.
     None,
+    /// Signed 32-bit immediate used by literal opcodes such as `LitI4`.
+    ImmediateI32(i32),
     /// A typed index in the module-shared constant pool.
     ConstantPool(u32),
     /// A symbolic frame slot, not a copied PE/x86 frame displacement.
@@ -320,7 +322,7 @@ pub fn validate(program: &mut Program) -> Result<(), Vec<ValidationError>> {
             }
             if matches!(
                 instruction.opcode,
-                OpcodeIdentity::Microsoft(id) if id == opcode_id(0x71)
+                OpcodeIdentity::Microsoft(id) if id == opcode_id(0x71) || id == opcode_id(0x70)
             ) {
                 stored_result = true;
             }
@@ -346,7 +348,7 @@ pub fn validate(program: &mut Program) -> Result<(), Vec<ValidationError>> {
             }
             stack.extend(expected.pushes.iter().cloned());
             max_stack = max_stack.max(stack.len());
-            if is_exit(instruction)
+            if is_exit(procedure, instruction)
                 && (index + 1 != procedure.instructions.len() || !stack.is_empty())
             {
                 errors.push(ValidationError::InvalidOperand {
@@ -358,7 +360,7 @@ pub fn validate(program: &mut Program) -> Result<(), Vec<ValidationError>> {
         if procedure
             .instructions
             .last()
-            .is_none_or(|instruction| !is_exit(instruction))
+            .is_none_or(|instruction| !is_exit(procedure, instruction))
             || !stored_result
         {
             errors.push(ValidationError::MissingReturn {
@@ -383,8 +385,13 @@ fn catalog_identity_is_valid(id: MicrosoftOpcodeId) -> bool {
     !info.mnemonic.is_empty() && info.opcode == usize::from(id.opcode)
 }
 
-fn is_exit(instruction: &Instruction) -> bool {
-    instruction.opcode == OpcodeIdentity::Microsoft(opcode_id(0x14))
+fn is_exit(procedure: &ProcedureCode, instruction: &Instruction) -> bool {
+    let expected = if procedure.return_type == TypeInfo::new(vb6core::types::VBType::Boolean) {
+        opcode_id(0x15)
+    } else {
+        opcode_id(0x14)
+    };
+    instruction.opcode == OpcodeIdentity::Microsoft(expected)
 }
 
 fn expected_contract(
@@ -400,6 +407,7 @@ fn expected_contract(
         by_ref: false,
     };
     let long = TypeInfo::long();
+    let boolean = TypeInfo::new(vb6core::types::VBType::Boolean);
     let contract = if id == opcode_id(0x6c) {
         let Operand::FrameSlot(FrameSlot::Parameter(index)) = instruction.operand else {
             return None;
@@ -420,6 +428,26 @@ fn expected_contract(
             },
             vec![SideEffect::FrameAccess],
         )
+    } else if id == opcode_id(0xf5) {
+        if let Operand::ImmediateI32(_) = instruction.operand {
+            if info.mnemonic != "LitI4"
+                || info.size != 5
+                || info.operand_format != "%4"
+                || info.pops != 0
+                || info.pushes != 1
+            {
+                return None;
+            }
+            (
+                StackEffect {
+                    pops: vec![],
+                    pushes: vec![val(&long)],
+                },
+                vec![],
+            )
+        } else {
+            return None;
+        }
     } else if id == opcode_id(0xaa) {
         if instruction.operand != Operand::None
             || info.mnemonic != "AddI4"
@@ -436,6 +464,29 @@ fn expected_contract(
                 pushes: vec![val(&long)],
             },
             vec![SideEffect::MayRaise],
+        )
+    } else if let Some(contract) = long_operator_contract(id, instruction, info, &long) {
+        contract
+    } else if let Some(contract) = long_comparison_contract(id, instruction, info, &long, &boolean)
+    {
+        contract
+    } else if id == opcode_id(0x70) {
+        if instruction.operand != Operand::FrameSlot(FrameSlot::FunctionResult)
+            || procedure.return_type != boolean
+            || info.mnemonic != "FStI2"
+            || info.size != 3
+            || info.operand_format != "%a"
+            || info.pops != 1
+            || info.pushes != 0
+        {
+            return None;
+        }
+        (
+            StackEffect {
+                pops: vec![val(&boolean)],
+                pushes: vec![],
+            },
+            vec![SideEffect::FrameAccess],
         )
     } else if id == opcode_id(0x71) {
         if instruction.operand != Operand::FrameSlot(FrameSlot::FunctionResult)
@@ -467,10 +518,112 @@ fn expected_contract(
             return None;
         }
         (StackEffect::default(), vec![SideEffect::ControlFlow])
+    } else if id == opcode_id(0x15) {
+        if instruction.operand != Operand::None
+            || procedure.return_type != boolean
+            || info.mnemonic != "ExitProcI2"
+            || info.size != 1
+            || !info.operand_format.is_empty()
+            || info.pops != 0
+            || info.pushes != 0
+        {
+            return None;
+        }
+        (StackEffect::default(), vec![SideEffect::ControlFlow])
     } else {
         return None;
     };
     Some(contract)
+}
+
+fn long_comparison_contract(
+    id: MicrosoftOpcodeId,
+    instruction: &Instruction,
+    info: &OpcodeInfo,
+    long: &TypeInfo,
+    boolean: &TypeInfo,
+) -> Option<(StackEffect, Vec<SideEffect>)> {
+    let mnemonic = match (id.table, id.opcode) {
+        (DispatchTable::Primary, 0xc7) => "EqI4",
+        (DispatchTable::Primary, 0xcc) => "NeI4",
+        (DispatchTable::Primary, 0xd1) => "LtI4",
+        (DispatchTable::Primary, 0xd6) => "LeI4",
+        (DispatchTable::Primary, 0xdb) => "GtI4",
+        (DispatchTable::Primary, 0xe0) => "GeI4",
+        _ => return None,
+    };
+    if instruction.operand != Operand::None
+        || info.mnemonic != mnemonic
+        || info.size != 1
+        || !info.operand_format.is_empty()
+        || info.pops != 2
+        || info.pushes != 1
+    {
+        return None;
+    }
+    Some((
+        StackEffect {
+            pops: vec![
+                StackValue {
+                    ty: long.clone(),
+                    by_ref: false,
+                },
+                StackValue {
+                    ty: long.clone(),
+                    by_ref: false,
+                },
+            ],
+            pushes: vec![StackValue {
+                ty: boolean.clone(),
+                by_ref: false,
+            }],
+        },
+        vec![],
+    ))
+}
+
+fn long_operator_contract(
+    id: MicrosoftOpcodeId,
+    instruction: &Instruction,
+    info: &OpcodeInfo,
+    long: &TypeInfo,
+) -> Option<(StackEffect, Vec<SideEffect>)> {
+    let (mnemonic, arity, may_raise) = match (id.table, id.opcode) {
+        (crate::DispatchTable::Primary, 0xae) => ("SubI4", 2, true),
+        (crate::DispatchTable::Primary, 0xb2) => ("MulI4", 2, true),
+        (crate::DispatchTable::Primary, 0xb8) => ("UMiI4", 1, true),
+        (crate::DispatchTable::Primary, 0xc0) => ("IDvI4", 2, true),
+        (crate::DispatchTable::Primary, 0xc2) => ("ModI4", 2, true),
+        (crate::DispatchTable::Primary, 0xc3) => ("NotI4", 1, false),
+        (crate::DispatchTable::Primary, 0xc4) => ("AndI4", 2, false),
+        (crate::DispatchTable::Primary, 0xc5) => ("OrI4", 2, false),
+        (crate::DispatchTable::Lead0, 0x11 | 0x12 | 0x13) => ("XorI4", 2, false),
+        _ => return None,
+    };
+    if instruction.operand != Operand::None
+        || info.mnemonic != mnemonic
+        || info.size != 1
+        || !info.operand_format.is_empty()
+        || info.pops != arity
+        || info.pushes != 1
+    {
+        return None;
+    }
+    let value = || StackValue {
+        ty: long.clone(),
+        by_ref: false,
+    };
+    Some((
+        StackEffect {
+            pops: (0..arity).map(|_| value()).collect(),
+            pushes: vec![value()],
+        },
+        if may_raise {
+            vec![SideEffect::MayRaise]
+        } else {
+            vec![]
+        },
+    ))
 }
 
 /// Build the catalog identity for a Primary-table opcode.

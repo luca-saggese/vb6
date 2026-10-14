@@ -13,10 +13,16 @@ See the repository's
 
 The [`program` module](src/program.rs) defines a versioned, platform-independent
 container with Microsoft table/slot identities, normalized operands, procedure
-metadata, source maps, and stack validation. The current compiler emits only
-`ILdRf`, `AddI4`, `FStR4`, and `ExitProc` for the supported `Add(Long, Long)`
-HIR shape; see the
+metadata, source maps, and stack validation. The current compiler emits
+`ILdRf`, `LitI4`, implemented Long arithmetic/bitwise/comparison operators,
+and the typed Long/Boolean result-store and return opcodes; see the
 [opcode evidence and limits](../../docs/integration/HIR-PCODE.md).
+
+The [`operator_selector` module](src/operator_selector.rs) separately ports
+the recovered FAC2B97/FAC2A60 type-directed selector, and
+[`logical_opcode_map`](src/logical_opcode_map.rs) resolves its logical IDs
+through FAC2090 to Microsoft dispatch identities. The selector still expects
+native AST/type IDs; connecting those to repository HIR remains future work.
 
 See [catalog provenance and generation](docs/CATALOG.md) and
 [the changelog](CHANGELOG.md).
