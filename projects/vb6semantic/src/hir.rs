@@ -1391,6 +1391,71 @@ fn lower_expression(
             };
             (ExpressionKind::Name(name), Some(symbol.type_info.clone()))
         }
+        SyntaxKind::MemberAccessExpression => {
+            let receiver = if let Some(receiver_node) = children
+                .iter()
+                .find(|child| is_expression_kind(child.kind()))
+            {
+                lower_expression(receiver_node, scope_id, scopes, make_info)?
+            } else {
+                let receiver_name = node.text().split('.').next().unwrap_or_default().trim();
+                let Some(symbol) =
+                    scope_id.and_then(|id| lookup_in_chain(scopes, id, receiver_name))
+                else {
+                    return Err(unsupported(node, make_info));
+                };
+                let info = make_info(node, Some(symbol.scope_id), Some(symbol.type_info.clone()));
+                let kind = ExpressionKind::Name(symbol.name.clone());
+                Expression {
+                    native_ast: native_expression_mapping(&kind, info.ty.as_ref()),
+                    kind,
+                    info: NodeInfo {
+                        symbol: Some(SymbolId {
+                            scope_id: symbol.scope_id,
+                            name: symbol.name.to_ascii_lowercase(),
+                        }),
+                        ..info
+                    },
+                }
+            };
+            let name = node
+                .text()
+                .rsplit(['.', '!'])
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            if name.is_empty() {
+                return Err(unsupported(node, make_info));
+            }
+            let Some(vb6core::types::VBType::UserType(type_name)) =
+                receiver.info.ty.as_ref().map(|ty| &ty.kind)
+            else {
+                return Err(unsupported(node, make_info));
+            };
+            let type_scope = scopes
+                .get_scopes_by_kind(crate::ScopeKind::Type)
+                .into_iter()
+                .find(|candidate| candidate.name.eq_ignore_ascii_case(type_name));
+            let Some(member) = type_scope.and_then(|scope| {
+                scope
+                    .symbols
+                    .values()
+                    .find(|symbol| symbol.name.eq_ignore_ascii_case(&name))
+            }) else {
+                return Err(SemanticError::UndefinedSymbol {
+                    name,
+                    location: make_info(node, scope_id, None).location,
+                });
+            };
+            (
+                ExpressionKind::Member {
+                    receiver: Box::new(receiver),
+                    name,
+                },
+                Some(member.type_info.clone()),
+            )
+        }
         SyntaxKind::NumericLiteralExpression => {
             let text = node.text().trim();
             let ty = if text.contains('.') {
@@ -1425,6 +1490,40 @@ fn lower_expression(
             let value = lower_expression(&children[0], scope_id, scopes, make_info)?;
             let ty = value.info.ty.clone();
             (ExpressionKind::Parenthesized(Box::new(value)), ty)
+        }
+        SyntaxKind::UnaryExpression if !children.is_empty() => {
+            let operand = lower_expression(&children[0], scope_id, scopes, make_info)?;
+            let operator = node
+                .children()
+                .into_iter()
+                .find(|child| {
+                    child.is_token()
+                        && !matches!(child.kind(), SyntaxKind::Whitespace | SyntaxKind::Newline)
+                })
+                .map(|child| child.text().to_string())
+                .unwrap_or_default();
+            let operand_type =
+                operand
+                    .info
+                    .ty
+                    .as_ref()
+                    .ok_or_else(|| SemanticError::UnsupportedFeature {
+                        feature: format!("unary operator `{operator}`"),
+                        reason: "operand has no statically known type".to_string(),
+                        location: operand.info.location.clone(),
+                    })?;
+            let result = crate::TypeChecker::new().check_unary_operation(
+                operand_type,
+                &operator,
+                &make_info(node, scope_id, None).location,
+            )?;
+            (
+                ExpressionKind::Unary {
+                    operator: Operator::Source(operator),
+                    operand: Box::new(operand),
+                },
+                Some(result),
+            )
         }
         SyntaxKind::BinaryExpression if children.len() >= 2 => {
             let mut left = lower_expression(&children[0], scope_id, scopes, make_info)?;
@@ -1528,14 +1627,19 @@ fn lower_expression(
             (kind, Some(result))
         }
         SyntaxKind::CallExpression if !children.is_empty() => {
-            let Some(callee_node) = node
-                .children()
-                .iter()
-                .find(|child| child.is_token() && child.kind() == SyntaxKind::Identifier)
-            else {
+            let called_name = node
+                .text()
+                .split('(')
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .rsplit('.')
+                .next()
+                .unwrap_or_default()
+                .to_string();
+            if called_name.is_empty() {
                 return Err(unsupported(node, make_info));
-            };
-            let called_name = callee_node.text().to_string();
+            }
             let Some(symbol) = scope_id.and_then(|id| lookup_in_chain(scopes, id, &called_name))
             else {
                 return Err(SemanticError::UndefinedSymbol {
@@ -1545,8 +1649,8 @@ fn lower_expression(
             };
             let callee_info = NodeInfo {
                 span: SourceSpan {
-                    start: callee_node.start_offset(),
-                    end: callee_node.end_offset(),
+                    start: node.start_offset(),
+                    end: node.start_offset() + called_name.len() as u32,
                 },
                 ty: Some(symbol.type_info.clone()),
                 symbol: Some(SymbolId {
@@ -1555,9 +1659,10 @@ fn lower_expression(
                 }),
                 location: symbol.location.clone(),
             };
+            let callee_kind = ExpressionKind::Name(symbol.name.clone());
             let callee = Expression {
-                kind: ExpressionKind::Name(symbol.name.clone()),
-                native_ast: unknown_native_ast(NativeAstNamespace::Expression),
+                native_ast: native_expression_mapping(&callee_kind, callee_info.ty.as_ref()),
+                kind: callee_kind,
                 info: callee_info,
             };
             let mut arguments = Vec::new();
@@ -1577,7 +1682,17 @@ fn lower_expression(
                     arguments.push(lower_expression(expression, scope_id, scopes, make_info)?);
                 }
             }
+            let is_array = symbol.type_info.is_array
+                || matches!(symbol.type_info.kind, vb6core::types::VBType::Array(_));
             let return_type = match &symbol.type_info.kind {
+                vb6core::types::VBType::Array(element) if !arguments.is_empty() => {
+                    Some(TypeInfo::new(element.as_ref().clone()))
+                }
+                _ if is_array && !arguments.is_empty() => {
+                    let mut element_type = symbol.type_info.clone();
+                    element_type.is_array = false;
+                    Some(element_type)
+                }
                 vb6core::types::VBType::Function { return_type } => Some((**return_type).clone()),
                 vb6core::types::VBType::Sub => None,
                 _ => {
@@ -1594,7 +1709,7 @@ fn lower_expression(
                         .filter(|child| child.name.eq_ignore_ascii_case(&symbol.name))
                 })
             });
-            if let Some(formals) = formal_scope {
+            if !is_array && let Some(formals) = formal_scope {
                 let mut params: Vec<_> = formals
                     .symbols
                     .values()
@@ -1701,9 +1816,13 @@ fn native_expression_mapping(
             | Some(vb6core::types::VBType::Double)
             | Some(vb6core::types::VBType::Date) => (Some(0x03), Observed),
             Some(vb6core::types::VBType::String) => (Some(0x04), Inferred),
-            Some(vb6core::types::VBType::Variant) => (Some(0x05), Observed),
+            Some(vb6core::types::VBType::Variant)
+            | Some(vb6core::types::VBType::Empty)
+            | Some(vb6core::types::VBType::Null)
+            | Some(vb6core::types::VBType::Error) => (Some(0x05), Observed),
             _ => (None, NativeAstEvidence::Unknown),
         },
+        ExpressionKind::Name(_) => (Some(0x0f), Inferred),
         ExpressionKind::Unary { operator, .. } => match operator {
             Operator::Source(operator) if operator.trim() == "+" => (None, Passthrough),
             Operator::Source(operator) if operator.eq_ignore_ascii_case("not") => {
@@ -1748,8 +1867,38 @@ fn native_expression_mapping(
                 )
             }
         },
-        ExpressionKind::Conversion { .. } => (None, NativeAstEvidence::Unknown),
-        _ => (None, NativeAstEvidence::Unknown),
+        ExpressionKind::Call { callee, .. } => match callee.info.ty.as_ref() {
+            Some(ty) if ty.is_array || matches!(ty.kind, vb6core::types::VBType::Array(_)) => {
+                (Some(0x6a), Inferred)
+            }
+            _ => (Some(0x61), Inferred),
+        },
+        ExpressionKind::Member { receiver, .. } => {
+            match receiver.info.ty.as_ref().map(|ty| &ty.kind) {
+                Some(vb6core::types::VBType::Class(_))
+                | Some(vb6core::types::VBType::UserType(_)) => (Some(0x68), Inferred),
+                Some(vb6core::types::VBType::Object) | Some(vb6core::types::VBType::Variant) => {
+                    (Some(0x6b), Inferred)
+                }
+                _ => (None, NativeAstEvidence::Unknown),
+            }
+        }
+        ExpressionKind::Parenthesized(_) => (Some(0x65), Observed),
+        ExpressionKind::Conversion { target_type, .. } => {
+            let kind = match &target_type.kind {
+                vb6core::types::VBType::Array(element)
+                    if matches!(element.as_ref(), vb6core::types::VBType::Variant) =>
+                {
+                    0x10
+                }
+                _ => 0x0e,
+            };
+            (Some(kind), Inferred)
+        }
+        ExpressionKind::ShortCircuit { .. }
+        | ExpressionKind::Coalesce { .. }
+        | ExpressionKind::Lambda { .. }
+        | ExpressionKind::Spread(_) => (None, NativeAstEvidence::Unknown),
     };
     match kind {
         Some(kind) => native_ast_mapping(Expression, kind, evidence),
@@ -2147,13 +2296,15 @@ fn coerce_short_circuit_operand(expression: Expression) -> Result<Expression, Se
 fn implicit_conversion(expression: Expression, target_type: TypeInfo) -> Expression {
     let mut info = expression.info.clone();
     info.ty = Some(target_type.clone());
+    let kind = ExpressionKind::Conversion {
+        expression: Box::new(expression),
+        target_type,
+        conversion: ConversionKind::Implicit,
+    };
+    let native_ast = native_expression_mapping(&kind, info.ty.as_ref());
     Expression {
-        kind: ExpressionKind::Conversion {
-            expression: Box::new(expression),
-            target_type,
-            conversion: ConversionKind::Implicit,
-        },
-        native_ast: unknown_native_ast(NativeAstNamespace::Expression),
+        kind,
+        native_ast,
         info,
     }
 }

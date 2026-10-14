@@ -51,6 +51,68 @@ fn constructs_typed_hir_with_procedure_parameters_and_spans() {
 }
 
 #[test]
+fn associates_native_kinds_with_source_expression_forms() {
+    let result = analyze(
+        "Attribute VB_Name = \"Typed\"\n\
+         Public Function Helper(ByVal value As Long) As Long\n\
+             Helper = value\n\
+         End Function\n\
+         Public Function Work(ByVal value As Long) As Long\n\
+             Work = (Helper(value + 1))\n\
+         End Function\n",
+    );
+    assert!(result.errors.is_empty(), "{:?}", result.errors);
+    let program = result.program.expect("valid VB6 should produce HIR");
+    let StatementKind::Assignment { value, .. } = &program.procedures[1].body[0].kind else {
+        panic!("expected function-result assignment")
+    };
+    assert_eq!(value.native_ast.kind, Some(0x65));
+    let vb6semantic::ExpressionKind::Parenthesized(call) = &value.kind else {
+        panic!("expected parenthesized function call")
+    };
+    assert_eq!(call.native_ast.kind, Some(0x61));
+    let vb6semantic::ExpressionKind::Call { callee, arguments } = &call.kind else {
+        panic!("expected function call")
+    };
+    assert_eq!(callee.native_ast.kind, Some(0x0f));
+    let vb6semantic::ExpressionKind::Binary { right, .. } = &arguments[0].kind else {
+        panic!("expected binary argument")
+    };
+    assert_eq!(right.native_ast.kind, Some(0x0e));
+}
+
+#[test]
+fn lowers_user_type_members_and_array_indexing() {
+    let result = analyze(
+        "Attribute VB_Name = \"Typed\"\n\
+         Private Type Point\n\
+             X As Long\n\
+         End Type\n\
+         Public Function Work(ByVal index As Long) As Long\n\
+             Dim point As Point\n\
+             Dim values(0 To 3) As Long\n\
+             point.X = values(index)\n\
+             Work = point.X\n\
+         End Function\n",
+    );
+    assert!(result.errors.is_empty(), "{:?}", result.errors);
+    let program = result.program.expect("valid VB6 should produce HIR");
+    let StatementKind::Assignment { target, value } = &program.procedures[0].body[2].kind else {
+        panic!("expected member assignment")
+    };
+    assert_eq!(target.native_ast.kind, Some(0x68));
+    assert_eq!(value.native_ast.kind, Some(0x6a));
+    assert_eq!(
+        value.info.ty.as_ref().unwrap().kind,
+        vb6semantic::VBType::Long
+    );
+    let StatementKind::Assignment { value, .. } = &program.procedures[0].body[3].kind else {
+        panic!("expected function-result assignment")
+    };
+    assert_eq!(value.native_ast.kind, Some(0x68));
+}
+
+#[test]
 fn symbol_binding_is_case_insensitive() {
     let result = analyze(
         "Attribute VB_Name = \"Typed\"\n\
