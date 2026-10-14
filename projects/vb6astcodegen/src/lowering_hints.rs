@@ -1,12 +1,10 @@
 //! Observed builtin selections for intermediate AST nodes, not direct P-code mappings.
-//! FUN_0faedf32 reads the builtin name at 0x0FAF0DF8 + builtin_id * 20.
 //! Callee construction uses kind 0x60; call construction uses kind 0x61.
 //! Binding, signature resolution and complete argument lowering remain caller-owned.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BuiltinLoweringHint {
     pub ast_kind: u16,
     pub builtin_id: u16,
-    /// Original record+16 type-template index, consumed by FUN_0faf49d3.
     pub result_type_template: u32,
     pub original_runtime_name: &'static str,
     pub name_record_address: u32,

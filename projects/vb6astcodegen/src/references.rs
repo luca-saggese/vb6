@@ -4,7 +4,6 @@
 use crate::{addressing::AddressDescriptor, tables::TYPE_INDEX};
 #[derive(Debug, Clone, Copy)]
 pub struct CommonStorageReference {
-    /// FUN_0faab355 outcome for ordinary records. Only1..3 are supported here.
     pub storage_class: u16,
     /// Record byte0 bit80 && (byte1 &7)==4 selects FAC0FA8's separate global
     /// object/environment path, even when the helper originally returned1..3.
@@ -12,7 +11,6 @@ pub struct CommonStorageReference {
     /// Native member descriptor low six bits and bit0x800.
     pub member_kind: u8,
     pub member_flag_800: bool,
-    /// FUN_0fb0f0f7(node[2])==0x14, required only for native type23.
     pub type23_is_udt: Option<bool>,
     /// Record byte+1 bit0x20 and context byte this+0xC.
     pub record_context_bit20: bool,

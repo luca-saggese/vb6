@@ -1,4 +1,3 @@
-//! Direct native addressing selector FUN_0fac13f1 and shared tails.
 //! C source: research/sources/decompiled/0fac13f1.c, 0fac142f.c.
 //! Missing C tail setup recovered from original static machine bytes embedded
 //! in tip_compile_module.rs; evidence work/addressing_native.asm and _tail.asm.
@@ -16,9 +15,7 @@ pub struct AddressDescriptor {
 }
 #[derive(Debug, Clone, Copy, Default)]
 pub struct AddressMetadata {
-    /// Boolean FUN_0fab0d6c(type_descriptor), required when native type is18.
     pub type_18_is_special: Option<bool>,
-    /// FUN_0faa9441(FUN_0faabba1(type_descriptor)), for flags4000/type23.
     pub underlying_type: Option<u16>,
     /// Same two helpers applied again to the first result, if underlying=23.
     pub nested_underlying_type: Option<u16>,
@@ -86,7 +83,6 @@ fn instruction(opcode: u16, words: Vec<u16>, original_address: u32) -> AddressIn
         original_address,
     }
 }
-/// Selection/emission including native recursion through FUN_0fb8e6e5.
 /// Reference descriptor construction and type classification remain caller-owned.
 pub fn select_address(i: AddressInput) -> Result<AddressPlan, AddressError> {
     let d = i.descriptor;

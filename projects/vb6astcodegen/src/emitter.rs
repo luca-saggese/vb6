@@ -1642,7 +1642,6 @@ impl Emitter<'_> {
         }
         Ok(ret)
     }
-    /// FUN_0fac38d1(args,0): physical argument sizes, independent of emission order.
     fn argument_bytes(&self, mut cursor: Option<NodeId>) -> Result<u16, EmitError> {
         let mut seen = BTreeSet::new();
         let mut total = 0u16;
@@ -1781,7 +1780,6 @@ impl Emitter<'_> {
                 )),
         }
     }
-    /// FUN_0faeb01b: linked operands retain their original evaluation order.
     fn redim(&mut self, id: NodeId) -> Result<u32, EmitError> {
         let n = self.get(id)?.clone();
         let first_cell = self.child(id, "right")?;

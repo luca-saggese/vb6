@@ -1,4 +1,3 @@
-//! Assignment branch plans ported from FUN_0fac0827 @0x0FAC0827.
 //! A plan is not emitted bytes: Evaluate/Address/Convert must be executed by codegen.
 //! Every unresolved dependency returns an error instead of an empty-success plan.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,23 +39,16 @@ pub enum AssignmentError {
 }
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ResolvedAssignmentMetadata {
-    /// Result of FUN_0fab0b42(rhs[5]) || FUN_0fac2f97(rhs[5]) != 0.
     pub rhs_special_call: Option<bool>,
-    /// local_10[0] from FUN_0fac0f35(lhs); address descriptor discriminator.
     pub lhs_address_kind: Option<u16>,
-    /// FUN_0faab81f(rhs[5]); only used by fast 0x392 branch.
     pub rhs_call_slot: Option<u16>,
-    /// uStack_6 (descriptor word at +10) from FUN_0fac0f35(lhs).
     pub lhs_address_word: Option<u16>,
     /// Return bit 0 from emitting RHS in mode 2.
     pub rhs_emission_low_bit: Option<bool>,
-    /// FUN_0faab81f(*(int **)(lhs[4]+0x14)).
     pub indexed_symbol_slot: Option<u16>,
     /// lhs[5] (unwrapping kind 0x37), field [4], truncated to u16.
     pub indexed_value: Option<u16>,
-    /// FUN_0fac2e29(assignment[6]); None when no node[6].
     pub assignment_descriptor: Option<u16>,
-    /// FUN_0fb0261c(lhs[2]) for type 0x11.
     pub lhs_type_descriptor: Option<u16>,
 }
 #[derive(Debug, Clone, Copy)]
@@ -126,7 +118,6 @@ pub fn select_assignment(input: AssignmentInput) -> Result<AssignmentPlan, Assig
     }
     let mut selected_flags = u32::from(input.flags & 0xff00);
     if input.flags & 0x6000 == 0 {
-        // Tail FUN_0fb34bac:13-14.
         if input.flags & 0x8000 != 0 && input.lhs_type == 0x0f && input.rhs_type == 0x0f {
             steps.push(AssignmentStep::Address {
                 mode: 5,
@@ -146,7 +137,6 @@ pub fn select_assignment(input: AssignmentInput) -> Result<AssignmentPlan, Assig
             if input.assignment_type != 2 && !reload {
                 selected_flags |= 0x40;
             }
-            // FUN_0fb34c29:14-20 extends address flags with 0x20.
             if input.lhs_kind == 0x69 && input.lhs_flags & 0x8000 != 0 {
                 selected_flags |= 0x20;
             }

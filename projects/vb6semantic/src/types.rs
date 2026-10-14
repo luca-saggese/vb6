@@ -137,6 +137,31 @@ impl TypeChecker {
         })
     }
 
+    /// Check a unary VB operator and preserve its operand's numeric/Boolean type.
+    pub fn check_unary_operation(
+        &self,
+        operand_type: &TypeInfo,
+        operation: &str,
+        location: &SourceLocation,
+    ) -> Result<TypeInfo> {
+        let operator = operation.trim().to_ascii_lowercase();
+        let valid = match operator.as_str() {
+            "+" | "-" => self.is_numeric(&operand_type.kind),
+            "not" => self.is_numeric(&operand_type.kind) || operand_type.kind == VBType::Boolean,
+            _ => false,
+        };
+        if valid {
+            Ok(operand_type.clone())
+        } else {
+            Err(SemanticError::InvalidOperation {
+                message: format!(
+                    "unary operator `{operation}` is not supported for {operand_type}"
+                ),
+                location: location.clone(),
+            })
+        }
+    }
+
     fn is_numeric(&self, kind: &VBType) -> bool {
         matches!(
             kind,

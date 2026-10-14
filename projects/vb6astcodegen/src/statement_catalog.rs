@@ -484,7 +484,6 @@ pub fn statement_record(tag: u8) -> Option<&'static StatementRecord> {
     tag.checked_sub(1)
         .and_then(|i| STATEMENT_CATALOG.get(i as usize))
 }
-/// Exact numeric transform FUN_0fac3a00:9-17; pass already resolved TYPE_INDEX value.
 pub const fn statement_type_offset(type_index: u32) -> u32 {
     match type_index {
         10 => 4,

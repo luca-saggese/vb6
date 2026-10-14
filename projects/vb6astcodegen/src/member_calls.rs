@@ -1,4 +1,3 @@
-//! Native kind0x61 member-call plan, FUN_0FABF2D2:842-1030.
 //! Caller resolves symbol/COM metadata; plans explicitly retain every helper dependency.
 //! Tail word proven by native blocks FAC03D5(word7), FAC039D..03BD(result descriptor),
 //! FB34845..34869(indirect descriptor low16); FAC03E9 consumes that pushed word.
@@ -32,27 +31,19 @@ pub enum MemberError {
 }
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ResolvedMemberMetadata {
-    /// FUN_0fab7f18(symbol).
     pub symbol_kind: Option<u32>,
-    /// Entire integer result from FUN_0fab7f4d, not coerced to bool.
     pub class: Option<u32>,
     /// Selected DAT_0faab770/7E0 descriptor byte at+0x1D.
     pub descriptor_flags: Option<u8>,
-    /// COM FUN_0fab5d51 outcome: interface differs from this-context interface.
     pub foreign_context: Option<bool>,
     /// Numeric TYPE_INDEX[result_type], resolved from recovered table.
     pub result_type_index: Option<u32>,
-    /// FUN_0faab81f(node[8]).
     pub symbol_slot: Option<u16>,
-    /// FUN_0faeba30(FUN_0fab4e58(node[8],...,1),null). Preserved unresolved ABI metadata.
     pub indirect_descriptor: Option<u32>,
     /// Target type indexes DAT_0fac39c0; may use TARGET_BYTES constant below.
     pub target_bytes: Option<u16>,
-    /// FUN_0fac38d1(node[5],0).
     pub argument_bytes: Option<u16>,
-    /// Successful FUN_0fac3945(symbol,&word); errors must be propagated by caller.
     pub call_descriptor: Option<u16>,
-    /// FUN_0fac2e29(node[9]) for class1 marker1.
     pub result_descriptor: Option<u16>,
 }
 #[derive(Debug, Clone, Copy)]
@@ -77,7 +68,6 @@ pub const TARGET_BYTES: [u16; 30] = [
     0, 0, 0, 4, 4, 4, 4, 4, 4, 4, 4, 8, 8, 8, 0x10, 0x10, 4, 0, 4, 0, 4, 0, 4, 4, 0, 0, 4, 4, 4, 4,
 ];
 pub fn select_member_base(table: &[u16; 6], kind: u32, class: u32, flag2000: bool) -> u16 {
-    // FUN_0FAC3506:8-11.
     let idx = if class == 1 {
         usize::from(kind != 1) + 2 * usize::from(flag2000)
     } else {
@@ -106,7 +96,6 @@ pub fn transform_member_opcode(
         if flags & 0x1000 != 0 && base == 0x320 {
             return Ok((0x41e, 1));
         }
-        // FUN_0FAC38AE. Preserve original sentinel0x446 for default.
         return Ok((
             match base {
                 0x300 => 0x16a,
@@ -120,7 +109,6 @@ pub fn transform_member_opcode(
         ));
     }
     if flags & 0x0800 != 0 {
-        // FUN_0FB91384; non300/310/320 default sentinel.
         return Ok((
             match base {
                 0x320 => 0x32d,

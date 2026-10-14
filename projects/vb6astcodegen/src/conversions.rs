@@ -23,19 +23,12 @@ pub enum ConversionError {
 }
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ResolvedConversionMetadata {
-    /// Low word returned by FUN_0faab81f(node[6]).
     pub destination_slot: Option<u16>,
-    /// Low word returned by FUN_0fb0261c(source[2]).
     pub source_descriptor: Option<u16>,
-    /// FUN_0fb8e6b0(destination[2]); distinct from the source descriptor.
     pub destination_reference: Option<u16>,
-    /// FUN_0fab8628(source[2]).
     pub source_type_descriptor: Option<u16>,
-    /// FUN_0fab8628(destination[2]), used by native tail0FB35623.
     pub destination_type_descriptor: Option<u16>,
-    /// FUN_0fb8e6b0(source[2]) or FUN_0fb8e64d(source[2]), according to descriptor.
     pub source_reference: Option<u16>,
-    /// Successful FUN_0faba86b(source[2], &local_c), and whether local_c != 0.
     pub source_22_resolution: Option<Result<bool, ()>>,
 }
 #[derive(Debug, Clone, Copy)]
@@ -87,7 +80,6 @@ fn plan(function: u32, line: u16, opcode: Option<u16>, words: &[u16]) -> Convers
             .collect(),
     }
 }
-/// FUN_0fac0c65: conversion only. The caller emits the child expression first.
 /// A successful table lookup is observed selection, not proof of legal VB input.
 pub fn select_conversion(i: ConversionInput) -> Result<ConversionPlan, ConversionError> {
     let plan = select_conversion_impl(i)?;
@@ -212,10 +204,8 @@ pub struct ConstantConversionInput {
     /// Native bytes at source + 0x10. Numeric f64 constants use little endian.
     pub literal_bytes: [u8; 8],
     pub destination_slot: Option<u16>,
-    /// Low word returned by FUN_0fac2e29 for type 16.
     pub interned_string: Option<u16>,
 }
-/// FUN_0fac31c9 constant optimization. None reproduces native return zero;
 /// it is not an error and the caller must use ordinary conversion emission.
 pub fn select_constant_conversion(
     i: ConstantConversionInput,

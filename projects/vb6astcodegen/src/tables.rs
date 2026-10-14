@@ -1,6 +1,5 @@
 //! Tables verified against the supplied VBALIFT1 snapshot, not a new PE acquisition.
 /// FAC41C8 switch: FAC415B, FB35812, FAC4187, FB35824, FB3583B, FB3584D.
-/// FUN_0fac4125 subtracts 2 for kind 0x51; categories 2/3 carry a pool word.
 pub const GET_PUT_BASE: [u16; 6] = [0x177, 0x178, 0x418, 0x419, 0x414, 0x415];
 // Source tables/ast_opcode_base.bin SHA256 1c63ba98f66034f58b8a5a46628d06f608e8d31a1acf29509d38eae4454032c5
 pub const OPCODE_BASE: [u16; 115] = [
@@ -1180,7 +1179,6 @@ pub struct TypedInput {
     pub flags: u32,
     pub slot: Option<u16>,
 }
-/// FUN_0fac2a60 selection only; children and FUN_0fac0b67 are caller-owned.
 pub fn select_typed(n: TypedInput) -> Result<(u16, Option<u16>), SelectionError> {
     let base = *OPCODE_BASE
         .get(n.kind as usize)

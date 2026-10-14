@@ -1,4 +1,3 @@
-//! Native plans for AST kinds41/42/43 (FUN_0fabf2d2, FUN_0fb0b52f).
 //! Counts, name indices and symbol metadata must come from bound AST/resolved
 //! pools; no guessed helper results and no opaque runtime fallback are used.
 use crate::addressing::{AddressError, AddressInput, AddressPlan, select_address};
